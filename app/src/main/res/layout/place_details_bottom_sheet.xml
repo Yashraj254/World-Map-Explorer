@@ -1,24 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/bottom_sheet_place_details"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bottom_sheet_bg"
+    android:orientation="vertical"
     android:padding="16dp"
-    app:behavior_hideable="false"
-    app:behavior_peekHeight="62dp"
-    app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior"
-    tools:context=".ui.PlaceDetailsBottomSheetFragment">
+    app:behavior_peekHeight="0dp"
+    app:gestureInsetBottomIgnored="true"
+    app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
     <LinearLayout
+        android:id="@+id/ll_place_details"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="?attr/colorSurface"
-
         android:orientation="vertical"
         android:padding="16dp">
+
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/header_layout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/tv_heading"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:paddingBottom="8dp"
+                android:text="Place Details"
+                android:textSize="18sp"
+                android:textStyle="bold"
+                app:layout_constraintBottom_toBottomOf="@id/header_layout"
+                app:layout_constraintStart_toStartOf="@id/header_layout"
+                app:layout_constraintTop_toTopOf="@id/header_layout" />
+
+            <ImageView
+                android:id="@+id/btn_close_sheet"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="end"
+                android:contentDescription="Close"
+                android:src="@drawable/ic_close"
+                app:layout_constraintBottom_toBottomOf="@id/header_layout"
+                app:layout_constraintEnd_toEndOf="@id/header_layout"
+                app:layout_constraintTop_toTopOf="@id/header_layout" />
+        </androidx.constraintlayout.widget.ConstraintLayout>
 
         <!-- Name -->
         <TextView
@@ -96,8 +126,15 @@
             android:layout_gravity="center"
             android:layout_marginTop="16dp"
             android:drawableLeft="@drawable/ic_directions"
-            android:text="Directions" />
+            android:text="Directions"
+            android:visibility="visible" />
 
     </LinearLayout>
 
-</LinearLayout>
+    <ProgressBar
+        android:id="@+id/pb_place_details"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

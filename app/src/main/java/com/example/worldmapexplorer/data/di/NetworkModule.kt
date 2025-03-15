@@ -1,5 +1,6 @@
 package com.example.worldmapexplorer.data.di
 
+import com.example.worldmapexplorer.data.network.CoordinatesAdapter
 import com.example.worldmapexplorer.data.network.api.ElevationAPi
 import com.example.worldmapexplorer.data.network.api.GeocodingApi
 import com.example.worldmapexplorer.data.network.api.GeometryApi
@@ -9,6 +10,7 @@ import com.example.worldmapexplorer.data.network.api.RouterApi
 import com.example.worldmapexplorer.data.network.client.ElevationClient
 import com.example.worldmapexplorer.data.network.client.NominatimClient
 import com.example.worldmapexplorer.data.network.client.RouteClient
+import com.squareup.moshi.Moshi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -65,9 +67,13 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideGeocodingApi(okHttpClient: OkHttpClient): GeocodingApi {
+        val moshi = Moshi.Builder()
+            .add(CoordinatesAdapter()) // Register the custom adapter
+            .build()
+
         return Retrofit.Builder()
             .baseUrl("https://nominatim.geocoding.ai")
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
             .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
             .client(okHttpClient)
             .build()
@@ -126,8 +132,8 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideNominatimClient(nominatimApi: NominatimApi, geometryApi: GeometryApi): NominatimClient {
-        return NominatimClient(nominatimApi,geometryApi)
+    fun provideNominatimClient(nominatimApi: NominatimApi, geometryApi: GeometryApi,geocodingApi: GeocodingApi): NominatimClient {
+        return NominatimClient(nominatimApi,geometryApi,geocodingApi)
     }
 
 }

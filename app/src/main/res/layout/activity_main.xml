@@ -13,12 +13,12 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_margin="16dp"
-        android:text="Altitude: 0.0 m"
-        android:padding="4dp"
-        android:elevation="6dp"
         android:background="@drawable/rounded_bg"
-        android:visibility="visible"
+        android:elevation="6dp"
+        android:padding="4dp"
+        android:text="Altitude: 0.0 m"
         android:textColor="@android:color/white"
+        android:visibility="visible"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/searchContainer" />
 
@@ -33,9 +33,9 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="12dp"
+        android:background="@color/md_theme_background"
         app:cardCornerRadius="10dp"
         app:cardElevation="6dp"
-        android:background="@color/md_theme_background"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent">
@@ -115,28 +115,58 @@
             android:contentDescription="Show Current Location"
             app:srcCompat="@drawable/ic_my_location" />
 
+
+        <Space
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_margin="8dp" />
+
+        <!-- FAB to show current location -->
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fabDistance"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="Show Current Location"
+            app:srcCompat="@drawable/ic_distance" />
     </LinearLayout>
 
     <ProgressBar
         android:id="@+id/pb_loading"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:visibility="gone"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
     <androidx.coordinatorlayout.widget.CoordinatorLayout
-        android:id="@+id/bottomSheet"
+        android:id="@+id/bottom_sheet"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:layout_marginTop="24dp"
         android:elevation="16dp"
-        android:visibility="gone">
+        android:visibility="visible">
 
         <include
-            android:id="@+id/included_bottom_sheet"
-            layout="@layout/fragment_place_details_bottom_sheet" />
+            android:id="@+id/included_places_bottom_sheet"
+            layout="@layout/places_bottom_sheet" />
+
+        <include
+            android:id="@+id/included_place_info_bottom_sheet"
+            layout="@layout/place_details_bottom_sheet" />
+
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
+<!--    <androidx.coordinatorlayout.widget.CoordinatorLayout-->
+<!--        android:id="@+id/places_info_bottom_sheet"-->
+<!--        android:layout_width="match_parent"-->
+<!--        android:layout_height="match_parent"-->
+<!--        android:layout_marginTop="24dp"-->
+<!--        android:elevation="16dp"-->
+<!--        android:visibility="visible">-->
+
+<!--  -->
+<!--    </androidx.coordinatorlayout.widget.CoordinatorLayout>-->
 
 </androidx.constraintlayout.widget.ConstraintLayout>

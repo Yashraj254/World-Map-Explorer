@@ -3,25 +3,27 @@ package com.example.worldmapexplorer.ui
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.worldmapexplorer.data.network.dto.LatLon
 import com.example.worldmapexplorer.data.network.dto.Place
 import com.example.worldmapexplorer.data.network.dto.PlaceInfo
 import com.example.worldmapexplorer.data.repository.PlacesRepository
+import com.example.worldmapexplorer.utils.calculateDistances
 import com.example.worldmapexplorer.utils.calculatePolygonArea
-import com.skydoves.sandwich.suspendOnException
+import com.example.worldmapexplorer.utils.decodePolyline
+import com.example.worldmapexplorer.utils.findBorderPoints
+import com.example.worldmapexplorer.utils.isPointInPolygon
 import com.skydoves.sandwich.suspendOnSuccess
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
-import java.net.SocketException
-import java.text.DecimalFormat
 import javax.inject.Inject
-import kotlin.math.abs
-import kotlin.math.sin
 
 @HiltViewModel
 class MainViewModel @Inject constructor(private val placesRepository: PlacesRepository) :
@@ -37,8 +39,19 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
     private val _isLoading: MutableStateFlow<Boolean> = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading
 
-    private val _points: MutableStateFlow<List<GeoPoint>> = MutableStateFlow(emptyList())
-    val points: StateFlow<List<GeoPoint>> = _points
+
+    private val _wayGeometry: MutableStateFlow<List<GeoPoint>> = MutableStateFlow(emptyList())
+    val wayGeometry: StateFlow<List<GeoPoint>> = _wayGeometry
+
+    private val _relationGeometry: MutableStateFlow<List<List<GeoPoint>>> = MutableStateFlow(emptyList())
+    val relationGeometry: StateFlow<List<List<GeoPoint>>> = _relationGeometry
+
+    private val _nodeGeometry: MutableStateFlow<LatLon?> = MutableStateFlow(null)
+    val nodeGeometry: StateFlow<LatLon?> = _nodeGeometry
+
+
+    private val _bounds: MutableStateFlow<BoundingBox> = MutableStateFlow(BoundingBox())
+    val bounds: StateFlow<BoundingBox> = _bounds
 
     private val _placeInfo: MutableStateFlow<PlaceInfo?> = MutableStateFlow(null)
     val placeInfo: StateFlow<PlaceInfo?> = _placeInfo
@@ -48,6 +61,17 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
 
     private val _altitude: MutableStateFlow<Double?> = MutableStateFlow(null)
     val altitude: StateFlow<Double?> = _altitude
+
+    private val _route: MutableStateFlow<List<GeoPoint>> = MutableStateFlow(emptyList())
+    val route: StateFlow<List<GeoPoint>> = _route
+
+    private val _border: MutableStateFlow<List<List<GeoPoint>>> = MutableStateFlow(emptyList())
+    val border: StateFlow<List<List<GeoPoint>>> = _border
+
+    private val _distances: MutableStateFlow<Map<String,Float>?> = MutableStateFlow(null)
+    val distances: StateFlow<Map<String,Float>?> = _distances
+
+    lateinit var selectedPlace: Place
 
     fun fetchPlaces(query: String) = viewModelScope.launch {
         _isLoading.emit(true)
@@ -70,8 +94,8 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
         searchJob?.cancel() // 🚀 Cancel previous job (Debounce)
 
         searchJob = viewModelScope.launch {
-            delay(2000) // ✅ Apply debounce (1 request per second)
             _isLoading.emit(true)
+            delay(2000) // ✅ Apply debounce (1 request per second)
             val excludedIds = excludedPlaceIds.joinToString(",")
 
             placesRepository.fetchPlaces(_searchQuery.value, excludedIds)
@@ -85,40 +109,61 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
         }
     }
 
-    fun getWayGeometry(osmId: Long, placeBuilder: PlaceInfo.Builder) = viewModelScope.launch {
+    fun getGeometry(osmId: Long, placeBuilder: PlaceInfo.Builder,osmType: String) = viewModelScope.launch {
         _placeInfo.emit(null)
         _isLoading.emit(true)
-        val query = "[out:json][timeout:25];way($osmId);out geom;"
-        placesRepository.getWayGeometry(query).suspendOnSuccess {
-            Log.d("ViewModel", "getWayGeometry: ${data.elements[0].tags}")
-            val points = data.elements[0].geometry.map {
-                GeoPoint(it.lat, it.lon)
-            }
-            val latLng = points.map { Pair(it.latitude, it.longitude) }
-            val area = calculatePolygonArea(latLng) // Returns area in square meters
+        val query = "[out:json][timeout:25];$osmType($osmId);out geom;"
+        Log.d("TAG", "getGeometry: $osmType")
+        when(osmType){
+            "way"->{
+                placesRepository.getWayGeometry(query).suspendOnSuccess {
+                    Log.d("ViewModel", "getWayGeometry: ${data.elements[0].tags}")
+                    val points = data.elements[0].geometry.map {
+                        GeoPoint(it.lat, it.lon)
+                    }
+                    val bounds = data.elements[0].bounds
+                    val latLng = points.map { Pair(it.latitude, it.longitude) }
+                    val area = calculatePolygonArea(latLng) // Returns area in square meters
 
-            val prefix = placesRepository.fetchPrefix(data.elements[0].tags)
-            placeBuilder.setType(prefix)
-            placeBuilder.setArea(area.toFloat())
-            val place = placeBuilder.build()
-            Log.d("ViewModel", "Place: ${place.address}")
-            _placeInfo.emit(place)
-            _points.emit(points)
-            _isLoading.emit(false)
-            // Handle success
-        }.suspendOnException {
-            // Handle error
-            _isLoading.emit(false)
-            if (exception is SocketException) {
-                _errorMessage.emit("Request timed out")
-            } else {
-                _errorMessage.emit("An error occurred")
+                    val prefix = placesRepository.fetchPrefix(data.elements[0].tags)
+                    placeBuilder.setType(prefix)
+                    placeBuilder.setArea(area.toFloat())
+                    val place = placeBuilder.build()
+                    Log.d("ViewModel", "Place: ${place.address}")
+                    _placeInfo.emit(place)
+                    _wayGeometry.emit(points)
+                    _bounds.emit(
+                        BoundingBox(
+                            bounds.maxLat,
+                            bounds.maxLon,
+                            bounds.minLat,
+                            bounds.minLon
+                        )
+                    )
+                    _isLoading.emit(false)
+                }
+
+            }
+            "node"->{
+//                placesRepository.getNodeGeometry(query).suspendOnSuccess {
+//                    val point = LatLon(data.elements[0].latitude, data.elements[0].longitude)
+//                    _nodeGeometry.emit(point)
+//                }
+            }
+            "relation"->{
+
             }
         }
+
     }
 
-    fun getRoute() = viewModelScope.launch {
+    fun getRoute(locations: List<LatLon>) = viewModelScope.launch(Dispatchers.IO) {
         _isLoading.emit(true)
+        placesRepository.getRoute(locations).suspendOnSuccess {
+            val decodedRoute = decodePolyline(data.trip.legs[0].shape)
+            _route.emit(decodedRoute)
+            _isLoading.emit(false)
+        }
 //        placesRepository.getRoute()
     }
 
@@ -128,8 +173,63 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
         }
     }
 
-
     fun clearErrorMessage() {
         _errorMessage.value = null
     }
+
+    fun getBorder(lat: Double, lon: Double, zoom: Int) {
+
+        searchJob?.cancel() // 🚀 Cancel previous job (Debounce)
+
+        searchJob = viewModelScope.launch(Dispatchers.IO) {
+            calculateDistances(GeoPoint(lat,lon),_border.value)
+
+            _border.value.forEach {
+                if (isPointInPolygon(GeoPoint(lat,lon),it)){
+                    return@launch
+                }
+            }
+            _isLoading.emit(true)
+
+            delay(2000) // ✅ Apply debounce (1 request in 2 seconds)
+            placesRepository.getPlacesBorder(lat, lon, zoom)
+                .suspendOnSuccess {
+                    val coordinates = data.features[0].geometry.coordinates
+                    val nestedList = parseCoordinates(coordinates, data.features[0].geometry.type)
+                    _border.emit(nestedList)
+                    _isLoading.emit(false)
+                }
+        }
+    }
+
+    private fun parseCoordinates(coordinates: List<*>, type: String): List<List<GeoPoint>> {
+
+        return when (type) {
+            "Polygon" -> listOf(parsePolygon(coordinates))
+            "MultiPolygon" -> coordinates.mapNotNull { parsePolygon(it as? List<*>) }
+            else -> emptyList()
+        }
+    }
+
+    private fun parsePolygon(coordinates: List<*>?): List<GeoPoint> {
+        return coordinates?.firstOrNull()?.let { firstRing ->
+            (firstRing as? List<*>)?.mapNotNull {
+                (it as? List<*>)?.takeIf { it.size >= 2 }
+                    ?.let { GeoPoint(it[1] as Double, it[0] as Double) }
+            }
+        } ?: emptyList()
+    }
+
+    fun calculateDistances(marker: GeoPoint,polygons:List<List<GeoPoint>>) = viewModelScope.launch {
+        val borderPoints = findBorderPoints(marker,polygons)
+        val distances = borderPoints.calculateDistances(marker)
+        _distances.emit(distances)
+    }
+
+    fun clearGeometry() = viewModelScope.launch {
+        _relationGeometry.emit(emptyList())
+        _wayGeometry.emit(emptyList())
+        _nodeGeometry.emit(null)
+    }
 }
+

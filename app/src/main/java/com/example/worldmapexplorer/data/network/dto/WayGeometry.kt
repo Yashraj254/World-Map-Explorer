@@ -4,7 +4,7 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
-data class PlaceDetails(
+data class WayGeometry(
     @field: Json(name = "elements") val elements: List<Element>
 ) {
     @JsonClass(generateAdapter = true)

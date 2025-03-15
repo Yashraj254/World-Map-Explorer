@@ -13,7 +13,7 @@ private const val VIEW_TYPE_ITEM = 0
 private const val VIEW_TYPE_LOADING = 1
 
 
-class SearchResultsAdapter(
+class PlaceAdapter(
     private val onItemClick: (Place) -> Unit
 ) : ListAdapter<Place, RecyclerView.ViewHolder>(diffCallback) {
 

@@ -1,70 +1,88 @@
 package com.example.worldmapexplorer.ui
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.graphics.Canvas
-import android.graphics.Color
+import android.location.LocationManager
 import android.os.Bundle
 import android.preference.PreferenceManager
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.example.worldmapexplorer.R
+import com.example.worldmapexplorer.data.network.dto.LatLon
+import com.example.worldmapexplorer.data.network.dto.Place
 import com.example.worldmapexplorer.data.network.dto.PlaceInfo
 import com.example.worldmapexplorer.databinding.ActivityMainBinding
-import com.example.worldmapexplorer.databinding.FragmentPlaceDetailsBottomSheetBinding
+import com.example.worldmapexplorer.databinding.PlaceDetailsBottomSheetBinding
+import com.example.worldmapexplorer.databinding.PlacesBottomSheetBinding
+import com.example.worldmapexplorer.utils.dpToPx
 import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.internal.ViewUtils.hideKeyboard
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
-import org.osmdroid.util.MapTileIndex.getX
-import org.osmdroid.util.MapTileIndex.getY
-import org.osmdroid.util.MapTileIndex.getZoom
 import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.Polygon
-import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import org.osmdroid.views.overlay.infowindow.InfoWindow
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
 
     private val viewModel: MainViewModel by viewModels()
     private lateinit var binding: ActivityMainBinding
-    private lateinit var bottomSheetBinding: FragmentPlaceDetailsBottomSheetBinding
+    private lateinit var placeDetailsBinding: PlaceDetailsBottomSheetBinding
+    private lateinit var placesBinding: PlacesBottomSheetBinding
+    private var selectedPlace: Place? = null
     private var isPolitical = true
-    private lateinit var myLocationOverlay: MyLocationNewOverlay
     private lateinit var placeInfo: PlaceInfo
     private var searchRoute = false
+    private lateinit var adapter: PlaceAdapter
+    private var isLoading = false
+    private lateinit var mapHandler: MapHandler
+    private lateinit var currentLocation: GeoPoint
+    private lateinit var borderDistances: Map<String, Float>
+
+    // Cached bottom sheet behaviors for reuse
+    private lateinit var placeDetailsBottomSheetBehavior: BottomSheetBehavior<CoordinatorLayout>
+    private lateinit var placesBottomSheetBehavior: BottomSheetBehavior<LinearLayout>
 
     private val locationPermissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             if (permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
                 permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
             ) {
-                myLocationOverlay.enableMyLocation()
-                myLocationOverlay.runOnFirstFix {
-                    runOnUiThread { moveToCurrentLocation() }
+                mapHandler.myLocationOverlay.enableMyLocation()
+                mapHandler.myLocationOverlay.runOnFirstFix {
+                    runOnUiThread { mapHandler.moveToCurrentLocation() }
                 }
             } else {
                 Toast.makeText(this, "Location permission denied!", Toast.LENGTH_SHORT).show()
@@ -76,16 +94,51 @@ class MainActivity : AppCompatActivity() {
         Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
         enableEdgeToEdge()
         binding = ActivityMainBinding.inflate(layoutInflater)
-        bottomSheetBinding = binding.includedBottomSheet
+        placeDetailsBinding = binding.includedPlaceInfoBottomSheet
+        placesBinding = binding.includedPlacesBottomSheet
         setContentView(binding.root)
 
-        setupMap()
 
         requestLocationPermission()
         setupWindowInsets()
-        setupBottomSheet()
         setupUIListeners()
         observeViewModel()
+        setupRecyclerView()
+        setupBottomSheets()
+
+
+        mapHandler = MapHandler(this, binding.mapView)
+        mapHandler.setupMap()
+
+        if (checkLocationPermission() && isGpsEnabled()) {
+            mapHandler.myLocationOverlay.runOnFirstFix {
+                runOnUiThread { mapHandler.moveToCurrentLocation() }
+            }
+        }
+    }
+
+    private val locationReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (isGpsEnabled()) {
+                mapHandler.myLocationOverlay.enableMyLocation()
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val filter = IntentFilter(LocationManager.PROVIDERS_CHANGED_ACTION)
+        registerReceiver(locationReceiver, filter)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        unregisterReceiver(locationReceiver)
+    }
+
+    private fun isGpsEnabled(): Boolean {
+        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
     }
 
     private fun setupWindowInsets() {
@@ -96,51 +149,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupMap() {
-        val map = binding.mapView
-        map.setTileSource(TileSourceFactory.MAPNIK)
-        map.setMultiTouchControls(true)
-
-        myLocationOverlay = MyLocationNewOverlay(map).apply {
-            enableMyLocation()
-//            runOnFirstFix {
-//                runOnUiThread { moveToCurrentLocation() }
-//            }
-        }
-
-        map.overlays.add(myLocationOverlay)
-
-        // Start with Delhi, India as the default location until permission is granted
-        val defaultLocation = GeoPoint(28.6139, 77.2090) // Delhi, India
-        map.controller.setZoom(15.0)
-
-
-//        if (checkLocationPermission()) {
-//            val currentLocation = myLocationOverlay.myLocation
-//            if (currentLocation != null) {
-//                map.controller.setCenter(currentLocation)
-//            } else {
-//                map.controller.setCenter(defaultLocation)
-//            }
-//        } else {
-//            map.controller.setCenter(defaultLocation)
-//        }
-        map.controller.setCenter(defaultLocation)
-        if (checkLocationPermission()) {
-            lifecycleScope.launch {
-                myLocationOverlay.runOnFirstFix {
-                    runOnUiThread {
-                        moveToCurrentLocation()
-                    }
-                }
-//                delay(3000) // Give time for location to be acquired
-//                val currentLocation = myLocationOverlay.myLocation
-//                if (currentLocation != null) {
-//                    moveToCurrentLocation()
-//                }
-            }
-        }
-    }
 
     private fun checkLocationPermission(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -148,34 +156,34 @@ class MainActivity : AppCompatActivity() {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
-    private fun moveToCurrentLocation() {
-        myLocationOverlay.myLocation?.let { geoPoint ->
-            binding.mapView.controller.apply {
-                setZoom(20.0)
-                setCenter(geoPoint)
-                animateTo(geoPoint)
-            }
-        } ?: Toast.makeText(this, "Location not found. Ensure GPS is enabled!", Toast.LENGTH_SHORT)
-            .show()
-    }
+    private fun setupBottomSheets() {
+        placeDetailsBottomSheetBehavior =
+            BottomSheetBehavior.from(placeDetailsBinding.bottomSheetPlaceDetails)
+        placesBottomSheetBehavior = BottomSheetBehavior.from(placesBinding.bottomSheetPlaces)
 
-    private fun setupBottomSheet() {
-        val bottomSheetBehavior =
-            BottomSheetBehavior.from(bottomSheetBinding.bottomSheetPlaceDetails)
-        bottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        placeDetailsBottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
+        placesBottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
     }
 
     private fun setupUIListeners() {
+        placesBinding.btnCloseSheet.setOnClickListener { hidePlaces() }
+        placeDetailsBinding.btnCloseSheet.setOnClickListener {
+            hidePlaceDetails()
+            binding.mapView.resetScrollableAreaLimitLatitude()
+            binding.mapView.resetScrollableAreaLimitLongitude()
+            mapHandler.removePolygon()
+            viewModel.clearGeometry()
+        }
+
         binding.etStartLocation.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 val query = binding.etStartLocation.text.toString().trim()
                 if (query.isNotEmpty()) {
                     hideKeyboard(v)
                     viewModel.fetchPlaces(query)
-                    SearchResultsBottomSheetFragment(searchRoute).show(
-                        supportFragmentManager,
-                        "SearchResults"
-                    )
+                    if (searchRoute)
+                        placesBinding.tvHeading.text = "Select Start Destination"
+                    showPlaces()
                 }
                 true
             } else {
@@ -189,27 +197,37 @@ class MainActivity : AppCompatActivity() {
                 binding.mapView.setTileSource(TileSourceFactory.MAPNIK)
                 Toast.makeText(this, "Switched to Political Map", Toast.LENGTH_SHORT).show()
             } else {
-                setOpenTopoMap()
+                mapHandler.setOpenTopoMap()
                 Toast.makeText(this, "Switched to Geographical Map", Toast.LENGTH_SHORT).show()
             }
         }
 
         binding.fabLocation.setOnClickListener {
             if (checkLocationPermission()) {
-                moveToCurrentLocation()
+                mapHandler.moveToCurrentLocation()
             } else {
                 requestLocationPermission()
             }
         }
 
-        bottomSheetBinding.btnDirections.setOnClickListener {
+        binding.fabDistance.setOnClickListener {
+            showPlaceDetailsDialog(
+                "${borderDistances["north"]} km",
+                "${borderDistances["south"]} km",
+                "${borderDistances["east"]} km",
+                "${borderDistances["west"]} km"
+            )
+        }
+
+        placeDetailsBinding.btnDirections.setOnClickListener {
             binding.etDestination.visibility = View.VISIBLE
             binding.divider.visibility = View.VISIBLE
             binding.etDestination.setText(placeInfo.address)
             binding.etStartLocation.text.clear()
             binding.etStartLocation.setHint("Enter Start Location")
             binding.etStartLocation.requestFocus()
-            bottomSheetBinding.bottomSheetPlaceDetails.visibility = View.GONE
+            searchRoute = true
+//            placeDetailsBinding.bottomSheetPlaceDetails.visibility = View.GONE
         }
 
         // add marker on click event
@@ -221,43 +239,49 @@ class MainActivity : AppCompatActivity() {
             override fun onSingleTapConfirmed(e: MotionEvent, mapView: MapView): Boolean {
                 val projection = mapView.projection
                 val geoPoint = projection.fromPixels(e.x.toInt(), e.y.toInt()) as GeoPoint
-
+                currentLocation = geoPoint
                 Log.d("MapClick", "Clicked at: ${geoPoint.latitude}, ${geoPoint.longitude}")
                 viewModel.getElevation(geoPoint.latitude, geoPoint.longitude)
                 // Add marker at clicked location
-                addMarker(geoPoint)
+
+                mapHandler.addMarker(geoPoint)
+                InfoWindow.closeAllInfoWindowsOn(mapView)
+
+                viewModel.getBorder(geoPoint.latitude, geoPoint.longitude, mapView.zoomLevel)
 
                 return true
             }
         }
 
-        // Remove any existing click listeners
-        binding.mapView.overlays.removeIf { it is Overlay }
-        binding.mapView.overlays.add(overlay)
-    }
+        if (!binding.mapView.overlays.contains(overlay)) {
+            binding.mapView.overlays.add(overlay)
+            InfoWindow.closeAllInfoWindowsOn(binding.mapView);
 
-
-    private fun addMarker(location: GeoPoint) {
-        val marker = Marker(binding.mapView)
-        marker.position = location
-        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        marker.icon = ContextCompat.getDrawable(this, R.drawable.ic_marker) // Custom marker icon
-
-        // Optional: Show info window when clicked
-        marker.title = "Selected Location"
-        marker.snippet = "Lat: ${location.latitude}, Lng: ${location.longitude}"
-        marker.setOnMarkerClickListener { m, _ ->
-            m.showInfoWindow()
-            true
         }
-
-        // Remove previous markers if needed
-        binding.mapView.overlays.removeIf { it is Marker }
-
-        binding.mapView.overlays.add(marker)
-        binding.mapView.invalidate() // Refresh the map
     }
 
+
+    private fun hidePlaceDetails() {
+        placeDetailsBottomSheetBehavior.peekHeight = 0
+        placeDetailsBottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+    }
+
+    private fun showPlaceDetails() {
+        placeDetailsBottomSheetBehavior.peekHeight = 62.dpToPx(this)
+        placeDetailsBottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        hidePlaces()
+    }
+
+    private fun hidePlaces() {
+        placesBottomSheetBehavior.peekHeight = 0
+        placesBottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+    }
+
+    private fun showPlaces() {
+        placesBottomSheetBehavior.peekHeight = 62.dpToPx(this)
+        placesBottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+        hidePlaceDetails()
+    }
 
     private fun hideKeyboard(view: View) {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -268,17 +292,25 @@ class MainActivity : AppCompatActivity() {
     private fun observeViewModel() {
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                launch { viewModel.points.collect { if (it.isNotEmpty()) drawPolygon(it) } }
-                launch { viewModel.placeInfo.collect {
-                    if (it != null) {
-                        placeInfo = it
-                    }
-                    updatePlaceInfo(it) } }
                 launch {
-                    viewModel.isLoading.collect {
-                        binding.pbLoading.visibility = if (it) View.VISIBLE else View.GONE
+                    combine(viewModel.wayGeometry, viewModel.bounds) { points, bounds ->
+                        points to bounds
+                    }.collect { (points, bounds) ->
+                        if (points.isNotEmpty()) {
+                            Log.d("Polygon", "observeViewModel: $points")
+                            mapHandler.drawPolygon(points, bounds)
+                        }
                     }
                 }
+                launch {
+                    viewModel.placeInfo.collect {
+                        if (it != null) {
+                            placeInfo = it
+                        }
+                        updatePlaceInfo(it)
+                    }
+                }
+
                 launch {
                     viewModel.errorMessage.collect {
                         if (it != null) {
@@ -290,12 +322,55 @@ class MainActivity : AppCompatActivity() {
                 launch {
                     viewModel.altitude.collect {
                         Log.d("MainActivity", "observeViewModel: Altitude: $it")
-                        if (it!=null){
+                        if (it != null) {
                             binding.tvAltitude.text = "Altitude: $it m"
                             binding.tvAltitude.visibility = View.VISIBLE
                         } else {
                             binding.tvAltitude.visibility = View.GONE
                         }
+                    }
+                }
+
+                launch {
+                    viewModel.places.collect {
+                        Log.d("SearchResults", "onViewCreated: $it")
+                        adapter.submitList(it)
+                    }
+                }
+                launch {
+                    viewModel.isLoading.collect {
+                        isLoading = it
+                        adapter.showLoadingIndicator(it)
+                        placeDetailsBinding.pbPlaceDetails.isVisible = it
+                        placeDetailsBinding.llPlaceDetails.isVisible = !it
+                    }
+                }
+
+                launch {
+                    viewModel.route.collect {
+                        if (it.isNotEmpty()) {
+                            mapHandler.drawRoute(it)
+                        }
+                    }
+                }
+
+                launch {
+                    viewModel.border.collect {
+                        if (it.isNotEmpty()) {
+                            mapHandler.drawBorder(it)
+                            viewModel.calculateDistances(currentLocation, it)
+                        }
+                    }
+                }
+                launch {
+                    viewModel.distances.collect {
+                        if(it!=null) {
+                            binding.fabDistance.visibility = View.VISIBLE
+                            borderDistances = it
+                        } else {
+                            binding.fabDistance.visibility = View.GONE
+                        }
+                        Log.d("Distances", "Distances: ${it?.entries}")
                     }
                 }
             }
@@ -305,66 +380,110 @@ class MainActivity : AppCompatActivity() {
     private fun updatePlaceInfo(placeInfo: PlaceInfo?) {
         placeInfo?.let {
             Log.d("MainActivity", "placeInfo: ${it.address}")
-            bottomSheetBinding.apply {
+            placeDetailsBinding.apply {
                 tvName.text = it.name
                 tvArea.text = "${it.area} km²"
                 tvType.text = it.type
                 tvAddress.text = it.address
             }
-            binding.bottomSheet.visibility = View.VISIBLE
         }
-    }
-
-    private fun drawPolygon(points: List<GeoPoint>) {
-        if (points.isEmpty()) {
-            Log.e("Geopoints", "No points available to draw a polygon!")
-            return
-        }
-
-        val polygon = Polygon(binding.mapView).apply {
-            this.points = points
-            fillColor = Color.argb(128, 255, 255, 0) // Yellow Transparent
-            strokeColor = Color.RED
-            strokeWidth = 3f
-        }
-
-        binding.mapView.overlayManager.apply {
-            overlays().clear()
-            add(myLocationOverlay)
-            add(polygon)
-        }
-
-        binding.mapView.controller.apply {
-            setCenter(points.first())
-            setZoom(18.0)
-        }
-        binding.mapView.invalidate()
     }
 
     private fun requestLocationPermission() {
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        if (!checkLocationPermission()) {
             locationPermissionRequest.launch(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
             )
-        } else {
-            myLocationOverlay.enableMyLocation()
         }
     }
 
+    private fun setupRecyclerView() {
+        adapter = PlaceAdapter() { selectedItem ->
+            val place = PlaceInfo.Builder()
+            place.setName(selectedItem.name)
+            place.setType(selectedItem.type)
+            place.setAddress(selectedItem.displayName)
 
-    private fun setOpenTopoMap() {
-        val openTopoMap = object : OnlineTileSourceBase(
-            "OpenTopoMap", 0, 18, 256, "",
-            arrayOf(
-                "https://a.tile.opentopomap.org/",
-                "https://b.tile.opentopomap.org/",
-                "https://c.tile.opentopomap.org/"
-            )
-        ) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return "$baseUrl${getZoom(pMapTileIndex)}/${getX(pMapTileIndex)}/${getY(pMapTileIndex)}.png"
+            viewModel.selectedPlace = selectedItem
+
+            if (searchRoute) {
+                viewModel.getRoute(
+                    listOf(
+                        LatLon(selectedItem.lat, selectedItem.lon),
+                        LatLon(selectedPlace!!.lat, selectedPlace!!.lon)
+                    )
+                )
+                selectedPlace = null
+                hidePlaces()
+                hidePlaceDetails()
+            } else {
+                viewModel.getGeometry(selectedItem.osmId, place, selectedItem.osmType)
+                showPlaceDetails()
             }
+            selectedPlace = selectedItem
+
+            // Handle item click (e.g., move map to selected location)
         }
-        binding.mapView.setTileSource(openTopoMap)
+        placesBinding.recyclerView.layoutManager = LinearLayoutManager(this)
+        placesBinding.recyclerView.adapter = adapter
+        placesBinding.recyclerView.addOnItemTouchListener(object :
+            RecyclerView.OnItemTouchListener {
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                placesBinding.recyclerView.parent.requestDisallowInterceptTouchEvent(true)
+                return false
+            }
+
+            override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {
+                TODO("Not yet implemented")
+            }
+
+            override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
+                TODO("Not yet implemented")
+            }
+        })
+
+        placesBinding.recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                super.onScrolled(recyclerView, dx, dy)
+                val layoutManager = recyclerView.layoutManager as LinearLayoutManager
+                val lastVisibleItem = layoutManager.findLastCompletelyVisibleItemPosition()
+                val totalItemCount = layoutManager.itemCount
+
+                if (!isLoading && lastVisibleItem == totalItemCount - 1) {
+                    viewModel.fetchMorePlaces() // Fetch more data only when the last item is fully visible
+                }
+            }
+        })
+
     }
+
+    fun showPlaceDetailsDialog(north: String, south: String, east: String, west: String) {
+        val dialogView: View = LayoutInflater.from(this).inflate(R.layout.distance_dialog, null)
+
+        val tvDistanceNorth: TextView = dialogView.findViewById(R.id.tvDistanceNorth)
+        val tvDistanceSouth: TextView = dialogView.findViewById(R.id.tvDistanceSouth)
+        val tvDistanceEast: TextView = dialogView.findViewById(R.id.tvDistanceEast)
+        val tvDistanceWest: TextView = dialogView.findViewById(R.id.tvDistanceWest)
+        val btnOk: Button = dialogView.findViewById(R.id.btn_ok)
+
+        // Set distances
+        tvDistanceNorth.text = "North: $north"
+        tvDistanceSouth.text = "South: $south"
+        tvDistanceEast.text = "East: $east"
+        tvDistanceWest.text = "West: $west"
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setView(dialogView)
+            .setCancelable(true)
+            .create()
+
+        btnOk.setOnClickListener { dialog.dismiss() }
+
+        dialog.show()
+    }
+
+
 }
