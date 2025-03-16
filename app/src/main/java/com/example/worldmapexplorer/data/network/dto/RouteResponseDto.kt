@@ -14,12 +14,14 @@ data class RouteResponseDto(
     ) {
         @JsonClass(generateAdapter = true)
         data class LegDto(
-            @field:Json(name = "shape") val shape: String
+            @field:Json(name = "shape") val shape: String,
         )
 
         @JsonClass(generateAdapter = true)
         data class SummaryDto(
-            @field:Json(name = "length") val length: String
+            @field:Json(name = "length") val length: Double,
+            @field:Json(name = "time") val time: Double
         )
+
     }
 }

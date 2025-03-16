@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.worldmapexplorer.data.network.dto.LatLon
 import com.example.worldmapexplorer.data.network.dto.Place
 import com.example.worldmapexplorer.data.network.dto.PlaceInfo
+import com.example.worldmapexplorer.data.network.dto.RouteDetails
 import com.example.worldmapexplorer.data.repository.PlacesRepository
 import com.example.worldmapexplorer.utils.calculateDistances
 import com.example.worldmapexplorer.utils.calculatePolygonArea
+import com.example.worldmapexplorer.utils.convertSeconds
 import com.example.worldmapexplorer.utils.decodePolyline
 import com.example.worldmapexplorer.utils.findBorderPoints
 import com.example.worldmapexplorer.utils.isPointInPolygon
@@ -64,6 +66,9 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
 
     private val _route: MutableStateFlow<List<GeoPoint>> = MutableStateFlow(emptyList())
     val route: StateFlow<List<GeoPoint>> = _route
+
+    private val _routeDetails: MutableStateFlow<RouteDetails?> = MutableStateFlow(null)
+    val routeDetails: StateFlow<RouteDetails?> = _routeDetails
 
     private val _border: MutableStateFlow<List<List<GeoPoint>>> = MutableStateFlow(emptyList())
     val border: StateFlow<List<List<GeoPoint>>> = _border
@@ -162,6 +167,7 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
         placesRepository.getRoute(locations).suspendOnSuccess {
             val decodedRoute = decodePolyline(data.trip.legs[0].shape)
             _route.emit(decodedRoute)
+            _routeDetails.emit(RouteDetails(data.trip.summary.length.toInt().toString(), convertSeconds(data.trip.summary.time)))
             _isLoading.emit(false)
         }
 //        placesRepository.getRoute()
@@ -189,7 +195,6 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
                     return@launch
                 }
             }
-            _isLoading.emit(true)
 
             delay(2000) // ✅ Apply debounce (1 request in 2 seconds)
             placesRepository.getPlacesBorder(lat, lon, zoom)
@@ -197,7 +202,6 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
                     val coordinates = data.features[0].geometry.coordinates
                     val nestedList = parseCoordinates(coordinates, data.features[0].geometry.type)
                     _border.emit(nestedList)
-                    _isLoading.emit(false)
                 }
         }
     }
@@ -230,6 +234,18 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
         _relationGeometry.emit(emptyList())
         _wayGeometry.emit(emptyList())
         _nodeGeometry.emit(null)
+    }
+
+    fun clearRoute() = viewModelScope.launch {
+        _route.emit(emptyList())
+    }
+
+    fun clearPlaces() = viewModelScope.launch {
+        _places.emit(emptyList())
+    }
+
+    fun clearPlaceDetails() = viewModelScope.launch {
+        _placeInfo.emit(null)
     }
 }
 

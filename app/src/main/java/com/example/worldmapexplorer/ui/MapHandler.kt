@@ -32,6 +32,8 @@ class MapHandler(
     private var route: Polyline? = null
      var place: Polygon? = null
     private var currentMarker: Marker? = null  // Store last marker reference
+    private lateinit var startMarker: Marker
+    private lateinit var endMarker: Marker
 
     fun setupMap() {
         mapView.setTileSource(TileSourceFactory.MAPNIK)
@@ -156,7 +158,7 @@ class MapHandler(
             this.setPoints(points)
         }
 
-        val startMarker = Marker(mapView).apply {
+         startMarker = Marker(mapView).apply {
             position = points.first()
             icon = ContextCompat.getDrawable(
                 context,
@@ -165,7 +167,7 @@ class MapHandler(
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         }
 
-        val endMarker = Marker(mapView).apply {
+         endMarker = Marker(mapView).apply {
             position = points.last()
             icon = ContextCompat.getDrawable(
                 context,
@@ -243,6 +245,15 @@ class MapHandler(
         mapView.invalidate() // Force map refresh
     }
 
+    fun removeRoute(){
+        route?.let {
+            mapView.overlays.remove(startMarker)
+            mapView.overlays.remove(endMarker)
+            mapView.overlays.remove(it)
+            route = null
+        }
+        mapView.invalidate()
+    }
 //    fun addMarker(point: GeoPoint): Marker {
 //        val marker = Marker(mapView).apply {
 //            position = point

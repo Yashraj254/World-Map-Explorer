@@ -269,6 +269,12 @@ fun isPointInPolygon(point: GeoPoint, polygonPoints: List<GeoPoint>): Boolean {
 fun Int.dpToPx(context: Context): Int {
     return (this * context.resources.displayMetrics.density).toInt()
 }
+
+fun convertSeconds(seconds: Double): String {
+    val hours = (seconds / 3600).toInt()
+    val minutes = ((seconds % 3600) / 60).toInt()
+    return "$hours hours and $minutes minutes"
+}
 // Usage
 //val distances = getDistanceToBorders(userLocation, selectedBoundary)
 //Log.d("BorderDistances", "N: ${distances["North"]}, S: ${distances["South"]}, E: ${distances["East"]}, W: ${distances["West"]}")

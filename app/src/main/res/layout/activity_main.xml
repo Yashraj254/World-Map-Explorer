@@ -54,7 +54,7 @@
                 android:background="@null"
                 android:drawableStart="@android:drawable/ic_menu_search"
                 android:drawablePadding="8dp"
-                android:hint="Enter start location"
+                android:hint="Search location"
                 android:imeOptions="actionDone"
                 android:padding="4dp"
                 android:singleLine="true"
@@ -156,17 +156,21 @@
             android:id="@+id/included_place_info_bottom_sheet"
             layout="@layout/place_details_bottom_sheet" />
 
+        <include
+            android:id="@+id/included_route_details_bottom_sheet"
+            layout="@layout/route_details_bottom_sheet" />
+
     </androidx.coordinatorlayout.widget.CoordinatorLayout>
 
-<!--    <androidx.coordinatorlayout.widget.CoordinatorLayout-->
-<!--        android:id="@+id/places_info_bottom_sheet"-->
-<!--        android:layout_width="match_parent"-->
-<!--        android:layout_height="match_parent"-->
-<!--        android:layout_marginTop="24dp"-->
-<!--        android:elevation="16dp"-->
-<!--        android:visibility="visible">-->
+    <!--    <androidx.coordinatorlayout.widget.CoordinatorLayout-->
+    <!--        android:id="@+id/places_info_bottom_sheet"-->
+    <!--        android:layout_width="match_parent"-->
+    <!--        android:layout_height="match_parent"-->
+    <!--        android:layout_marginTop="24dp"-->
+    <!--        android:elevation="16dp"-->
+    <!--        android:visibility="visible">-->
 
-<!--  -->
-<!--    </androidx.coordinatorlayout.widget.CoordinatorLayout>-->
+    <!--  -->
+    <!--    </androidx.coordinatorlayout.widget.CoordinatorLayout>-->
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -40,10 +40,12 @@ import com.example.worldmapexplorer.data.network.dto.PlaceInfo
 import com.example.worldmapexplorer.databinding.ActivityMainBinding
 import com.example.worldmapexplorer.databinding.PlaceDetailsBottomSheetBinding
 import com.example.worldmapexplorer.databinding.PlacesBottomSheetBinding
+import com.example.worldmapexplorer.databinding.RouteDetailsBottomSheetBinding
 import com.example.worldmapexplorer.utils.dpToPx
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
@@ -51,7 +53,6 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
-import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.infowindow.InfoWindow
 
 @AndroidEntryPoint
@@ -61,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var placeDetailsBinding: PlaceDetailsBottomSheetBinding
     private lateinit var placesBinding: PlacesBottomSheetBinding
+    private lateinit var routeDetailsBinding: RouteDetailsBottomSheetBinding
     private var selectedPlace: Place? = null
     private var isPolitical = true
     private lateinit var placeInfo: PlaceInfo
@@ -70,10 +72,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var mapHandler: MapHandler
     private lateinit var currentLocation: GeoPoint
     private lateinit var borderDistances: Map<String, Float>
+    private lateinit var startDestination: String
+    private lateinit var endDestination: String
 
     // Cached bottom sheet behaviors for reuse
     private lateinit var placeDetailsBottomSheetBehavior: BottomSheetBehavior<CoordinatorLayout>
     private lateinit var placesBottomSheetBehavior: BottomSheetBehavior<LinearLayout>
+    private lateinit var routeDetailsBottomSheetBehavior: BottomSheetBehavior<CoordinatorLayout>
 
     private val locationPermissionRequest =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
@@ -96,6 +101,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         placeDetailsBinding = binding.includedPlaceInfoBottomSheet
         placesBinding = binding.includedPlacesBottomSheet
+        routeDetailsBinding = binding.includedRouteDetailsBottomSheet
         setContentView(binding.root)
 
 
@@ -160,19 +166,24 @@ class MainActivity : AppCompatActivity() {
         placeDetailsBottomSheetBehavior =
             BottomSheetBehavior.from(placeDetailsBinding.bottomSheetPlaceDetails)
         placesBottomSheetBehavior = BottomSheetBehavior.from(placesBinding.bottomSheetPlaces)
+        routeDetailsBottomSheetBehavior =
+            BottomSheetBehavior.from(routeDetailsBinding.bottomSheetRouteDetails)
 
         placeDetailsBottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
         placesBottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
+        routeDetailsBottomSheetBehavior.state = BottomSheetBehavior.STATE_HIDDEN
     }
 
     private fun setupUIListeners() {
-        placesBinding.btnCloseSheet.setOnClickListener { hidePlaces() }
+        placesBinding.btnCloseSheet.setOnClickListener {
+            hidePlaces()
+        }
         placeDetailsBinding.btnCloseSheet.setOnClickListener {
             hidePlaceDetails()
-            binding.mapView.resetScrollableAreaLimitLatitude()
-            binding.mapView.resetScrollableAreaLimitLongitude()
-            mapHandler.removePolygon()
-            viewModel.clearGeometry()
+
+        }
+        routeDetailsBinding.btnCloseSheet.setOnClickListener {
+            hideRouteDetails()
         }
 
         binding.etStartLocation.setOnEditorActionListener { v, actionId, _ ->
@@ -183,6 +194,10 @@ class MainActivity : AppCompatActivity() {
                     viewModel.fetchPlaces(query)
                     if (searchRoute)
                         placesBinding.tvHeading.text = "Select Start Destination"
+                    else {
+                        placesBinding.tvHeading.text = "Search Results"
+                        hideRouteDetails()
+                    }
                     showPlaces()
                 }
                 true
@@ -219,7 +234,7 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        placeDetailsBinding.btnDirections.setOnClickListener {
+        placeDetailsBinding.btnDirections.setOnClickListener { v->
             binding.etDestination.visibility = View.VISIBLE
             binding.divider.visibility = View.VISIBLE
             binding.etDestination.setText(placeInfo.address)
@@ -227,6 +242,9 @@ class MainActivity : AppCompatActivity() {
             binding.etStartLocation.setHint("Enter Start Location")
             binding.etStartLocation.requestFocus()
             searchRoute = true
+            routeDetailsBinding.tvEndDestination.text = placeInfo.name
+            hidePlaceDetails()
+            showKeyboard(v)
 //            placeDetailsBinding.bottomSheetPlaceDetails.visibility = View.GONE
         }
 
@@ -264,6 +282,11 @@ class MainActivity : AppCompatActivity() {
     private fun hidePlaceDetails() {
         placeDetailsBottomSheetBehavior.peekHeight = 0
         placeDetailsBottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+        binding.mapView.resetScrollableAreaLimitLatitude()
+        binding.mapView.resetScrollableAreaLimitLongitude()
+        mapHandler.removePolygon()
+        viewModel.clearGeometry()
+        viewModel.clearPlaceDetails()
     }
 
     private fun showPlaceDetails() {
@@ -275,6 +298,7 @@ class MainActivity : AppCompatActivity() {
     private fun hidePlaces() {
         placesBottomSheetBehavior.peekHeight = 0
         placesBottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+        viewModel.clearPlaces()
     }
 
     private fun showPlaces() {
@@ -283,11 +307,30 @@ class MainActivity : AppCompatActivity() {
         hidePlaceDetails()
     }
 
+    private fun hideRouteDetails() {
+        routeDetailsBottomSheetBehavior.peekHeight = 0
+        routeDetailsBottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+        searchRoute = false
+        mapHandler.removeRoute()
+        viewModel.clearRoute()
+    }
+
+    private fun showRouteDetails() {
+        routeDetailsBottomSheetBehavior.peekHeight = 62.dpToPx(this)
+        routeDetailsBottomSheetBehavior.state = BottomSheetBehavior.STATE_EXPANDED
+    }
+
     private fun hideKeyboard(view: View) {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(view.windowToken, 0)
         binding.etStartLocation.clearFocus()
     }
+
+    private fun showKeyboard(view: View) {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(view, 0)
+    }
+
 
     private fun observeViewModel() {
         lifecycleScope.launch {
@@ -342,14 +385,29 @@ class MainActivity : AppCompatActivity() {
                         isLoading = it
                         adapter.showLoadingIndicator(it)
                         placeDetailsBinding.pbPlaceDetails.isVisible = it
+                        routeDetailsBinding.pbRouteDetails.isVisible = it
                         placeDetailsBinding.llPlaceDetails.isVisible = !it
+                        routeDetailsBinding.llRouteDetails.isVisible = !it
                     }
                 }
 
                 launch {
                     viewModel.route.collect {
                         if (it.isNotEmpty()) {
-                            mapHandler.drawRoute(it)
+                            mapHandler.drawRoute(it) }
+                    }
+                }
+
+                launch {
+                    viewModel.routeDetails.collect {
+                        if (it != null) {
+                            routeDetailsBinding.tvDistance.text = "Length: ${it.length}"
+                            routeDetailsBinding.tvTime.text = "Time: ${it.time}"
+                            binding.etDestination.visibility = View.GONE
+                            binding.divider.visibility = View.GONE
+                            binding.etStartLocation.text.clear()
+                            binding.etStartLocation.setHint("Search Location")
+                            searchRoute = false
                         }
                     }
                 }
@@ -364,7 +422,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 launch {
                     viewModel.distances.collect {
-                        if(it!=null) {
+                        if (it != null) {
                             binding.fabDistance.visibility = View.VISIBLE
                             borderDistances = it
                         } else {
@@ -410,6 +468,8 @@ class MainActivity : AppCompatActivity() {
             viewModel.selectedPlace = selectedItem
 
             if (searchRoute) {
+                routeDetailsBinding.tvStartDestination.text = selectedItem.name
+
                 viewModel.getRoute(
                     listOf(
                         LatLon(selectedItem.lat, selectedItem.lon),
@@ -419,6 +479,7 @@ class MainActivity : AppCompatActivity() {
                 selectedPlace = null
                 hidePlaces()
                 hidePlaceDetails()
+                showRouteDetails()
             } else {
                 viewModel.getGeometry(selectedItem.osmId, place, selectedItem.osmType)
                 showPlaceDetails()
