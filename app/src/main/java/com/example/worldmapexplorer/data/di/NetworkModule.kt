@@ -4,12 +4,13 @@ import com.example.worldmapexplorer.data.network.CoordinatesAdapter
 import com.example.worldmapexplorer.data.network.api.ElevationAPi
 import com.example.worldmapexplorer.data.network.api.GeocodingApi
 import com.example.worldmapexplorer.data.network.api.GeometryApi
-import com.skydoves.sandwich.adapters.ApiResponseCallAdapterFactory
 import com.example.worldmapexplorer.data.network.api.NominatimApi
 import com.example.worldmapexplorer.data.network.api.RouterApi
+import com.example.worldmapexplorer.data.network.api.WikidataApi
 import com.example.worldmapexplorer.data.network.client.ElevationClient
 import com.example.worldmapexplorer.data.network.client.NominatimClient
 import com.example.worldmapexplorer.data.network.client.RouteClient
+import com.skydoves.sandwich.retrofit.adapters.ApiResponseCallAdapterFactory
 import com.squareup.moshi.Moshi
 import dagger.Module
 import dagger.Provides
@@ -62,6 +63,7 @@ object NetworkModule {
             .build()
             .create(NominatimApi::class.java)
     }
+
 
 
     @Provides
@@ -117,6 +119,17 @@ object NetworkModule {
             .create(ElevationAPi::class.java)
     }
 
+    @Provides
+    @Singleton
+    fun provideWikidataApi(okHttpClient: OkHttpClient): WikidataApi {
+        return Retrofit.Builder()
+            .baseUrl("https://www.wikidata.org/")
+            .addConverterFactory(MoshiConverterFactory.create())
+            .addCallAdapterFactory(ApiResponseCallAdapterFactory.create())
+            .client(okHttpClient)
+            .build()
+            .create(WikidataApi::class.java)
+    }
 
     @Provides
     @Singleton

@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.location.LocationManager
 import android.os.Bundle
 import android.preference.PreferenceManager
@@ -34,18 +35,31 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.worldmapexplorer.R
+import com.example.worldmapexplorer.data.models.CountryDetails
+import com.example.worldmapexplorer.data.models.DistrictDetails
+import com.example.worldmapexplorer.data.models.OtherAreaDetails
+import com.example.worldmapexplorer.data.models.RiverDetails
+import com.example.worldmapexplorer.data.models.StateDetails
 import com.example.worldmapexplorer.data.network.dto.LatLon
 import com.example.worldmapexplorer.data.network.dto.Place
 import com.example.worldmapexplorer.data.network.dto.PlaceInfo
+import com.example.worldmapexplorer.data.repository.GeoJsonGeometry
 import com.example.worldmapexplorer.databinding.ActivityMainBinding
 import com.example.worldmapexplorer.databinding.PlaceDetailsBottomSheetBinding
 import com.example.worldmapexplorer.databinding.PlacesBottomSheetBinding
 import com.example.worldmapexplorer.databinding.RouteDetailsBottomSheetBinding
+import com.example.worldmapexplorer.utils.Coordinates
+import com.example.worldmapexplorer.utils.TemplateSection
+import com.example.worldmapexplorer.utils.countryTemplate
+import com.example.worldmapexplorer.utils.districtTemplate
 import com.example.worldmapexplorer.utils.dpToPx
+import com.example.worldmapexplorer.utils.otherAreaTemplate
+import com.example.worldmapexplorer.utils.riverTemplate
+import com.example.worldmapexplorer.utils.stateTemplate
+import com.example.worldmapexplorer.utils.toGeoPoint
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
@@ -53,7 +67,6 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Overlay
-import org.osmdroid.views.overlay.infowindow.InfoWindow
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
@@ -63,6 +76,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var placeDetailsBinding: PlaceDetailsBottomSheetBinding
     private lateinit var placesBinding: PlacesBottomSheetBinding
     private lateinit var routeDetailsBinding: RouteDetailsBottomSheetBinding
+
     private var selectedPlace: Place? = null
     private var isPolitical = true
     private lateinit var placeInfo: PlaceInfo
@@ -70,12 +84,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: PlaceAdapter
     private var isLoading = false
     private lateinit var mapHandler: MapHandler
-    private lateinit var currentLocation: GeoPoint
+    private var currentLocation: GeoPoint? = null
     private lateinit var borderDistances: Map<String, Float>
-    private lateinit var startDestination: String
-    private lateinit var endDestination: String
 
-    // Cached bottom sheet behaviors for reuse
     private lateinit var placeDetailsBottomSheetBehavior: BottomSheetBehavior<CoordinatorLayout>
     private lateinit var placesBottomSheetBehavior: BottomSheetBehavior<LinearLayout>
     private lateinit var routeDetailsBottomSheetBehavior: BottomSheetBehavior<CoordinatorLayout>
@@ -98,10 +109,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
         enableEdgeToEdge()
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        placeDetailsBinding = binding.includedPlaceInfoBottomSheet
-        placesBinding = binding.includedPlacesBottomSheet
-        routeDetailsBinding = binding.includedRouteDetailsBottomSheet
+        initializeBindings()
         setContentView(binding.root)
 
 
@@ -123,6 +131,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun initializeBindings() {
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        placeDetailsBinding = binding.includedPlaceInfoBottomSheet
+        placesBinding = binding.includedPlacesBottomSheet
+        routeDetailsBinding = binding.includedRouteDetailsBottomSheet
+    }
+
     private val locationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (isGpsEnabled()) {
@@ -142,10 +157,8 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(locationReceiver)
     }
 
-    private fun isGpsEnabled(): Boolean {
-        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-    }
+    private fun isGpsEnabled() = (getSystemService(Context.LOCATION_SERVICE) as LocationManager)
+        .isProviderEnabled(LocationManager.GPS_PROVIDER)
 
     private fun setupWindowInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
@@ -188,24 +201,25 @@ class MainActivity : AppCompatActivity() {
 
         binding.etStartLocation.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                val query = binding.etStartLocation.text.toString().trim()
-                if (query.isNotEmpty()) {
-                    hideKeyboard(v)
-                    viewModel.fetchPlaces(query)
-                    if (searchRoute)
-                        placesBinding.tvHeading.text = "Select Start Destination"
-                    else {
-                        placesBinding.tvHeading.text = "Search Results"
-                        hideRouteDetails()
-                    }
-                    showPlaces()
-                }
+                handleLocationSearch(v)
                 true
             } else {
                 false
             }
         }
 
+
+        placeDetailsBinding.btnDirections.setOnClickListener { v ->
+            setupDirectionsUI()
+            showKeyboard(v)
+//            placeDetailsBinding.bottomSheetPlaceDetails.visibility = View.GONE
+        }
+        setUpFabListeners()
+        // add marker on click event
+        setupMapClickListener()
+    }
+
+    private fun setUpFabListeners() {
         binding.fabLayers.setOnClickListener {
             isPolitical = !isPolitical
             if (isPolitical) {
@@ -234,22 +248,35 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        placeDetailsBinding.btnDirections.setOnClickListener { v->
-            binding.etDestination.visibility = View.VISIBLE
-            binding.divider.visibility = View.VISIBLE
-            binding.etDestination.setText(placeInfo.address)
-            binding.etStartLocation.text.clear()
-            binding.etStartLocation.setHint("Enter Start Location")
-            binding.etStartLocation.requestFocus()
-            searchRoute = true
-            routeDetailsBinding.tvEndDestination.text = placeInfo.name
-            hidePlaceDetails()
-            showKeyboard(v)
-//            placeDetailsBinding.bottomSheetPlaceDetails.visibility = View.GONE
-        }
+    }
 
-        // add marker on click event
-        setupMapClickListener()
+    private fun setupDirectionsUI() {
+        binding.etDestination.visibility = View.VISIBLE
+        binding.divider.visibility = View.VISIBLE
+        binding.etDestination.setText(placeInfo.displayName)
+        binding.etStartLocation.text.clear()
+        binding.etStartLocation.setHint("Enter Start Location")
+        binding.etStartLocation.requestFocus()
+        searchRoute = true
+        routeDetailsBinding.tvEndDestination.text = placeInfo.name
+        hidePlaceDetails()
+    }
+
+    private fun handleLocationSearch(view: View) {
+        val query = binding.etStartLocation.text.toString().trim()
+        if (query.isNotEmpty()) {
+            hideKeyboard(view)
+            viewModel.fetchPlaces(query)
+
+            placesBinding.tvHeading.text = if (searchRoute) {
+                "Select Start Destination"
+            } else {
+                hideRouteDetails()
+                "Search Results"
+            }
+
+            showPlaces()
+        }
     }
 
     private fun setupMapClickListener() {
@@ -260,21 +287,27 @@ class MainActivity : AppCompatActivity() {
                 currentLocation = geoPoint
                 Log.d("MapClick", "Clicked at: ${geoPoint.latitude}, ${geoPoint.longitude}")
                 viewModel.getElevation(geoPoint.latitude, geoPoint.longitude)
-                // Add marker at clicked location
-
                 mapHandler.addMarker(geoPoint)
-                InfoWindow.closeAllInfoWindowsOn(mapView)
-
+                viewModel.clearBorder()
                 viewModel.getBorder(geoPoint.latitude, geoPoint.longitude, mapView.zoomLevel)
 
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent, mapView: MapView): Boolean {
+                val projection = mapView.projection
+                val geoPoint = projection.fromPixels(e.x.toInt(), e.y.toInt()) as GeoPoint
+                currentLocation = geoPoint
+                Log.d("MapClick", "Clicked at: ${geoPoint.latitude}, ${geoPoint.longitude}")
+                viewModel.getPlaceDetails(geoPoint.latitude, geoPoint.longitude, mapView.zoomLevel)
+                showPlaceDetails()
+                hideRouteDetails()
                 return true
             }
         }
 
         if (!binding.mapView.overlays.contains(overlay)) {
             binding.mapView.overlays.add(overlay)
-            InfoWindow.closeAllInfoWindowsOn(binding.mapView);
-
         }
     }
 
@@ -285,7 +318,6 @@ class MainActivity : AppCompatActivity() {
         binding.mapView.resetScrollableAreaLimitLatitude()
         binding.mapView.resetScrollableAreaLimitLongitude()
         mapHandler.removePolygon()
-        viewModel.clearGeometry()
         viewModel.clearPlaceDetails()
     }
 
@@ -331,121 +363,223 @@ class MainActivity : AppCompatActivity() {
         imm.showSoftInput(view, 0)
     }
 
+    private fun populateTemplate(container: LinearLayout, template: List<TemplateSection>, dataMap: Map<String, String?>) {
+        container.removeAllViews()
+
+        template.forEach { section ->
+            if (section.type == "header") {
+                val headerView = TextView(this).apply {
+                    text = section.text
+                    textSize = when (section.level) {
+                        3 -> 20f
+                        5 -> 18f
+                        else -> 16f
+                    }
+                    setTypeface(null, Typeface.BOLD)
+                    setPadding(0, 16, 0, 8)
+                }
+                container.addView(headerView)
+            } else if (section.type == "list" || section.type == "paragraph") {
+                section.items?.forEach { item ->
+                    val value = dataMap[item.key] ?: "N/A" // Get value from map
+
+                    val itemView = TextView(this).apply {
+                        text = "${item.label}: $value" // Format label + value
+                        textSize = 16f
+                        setPadding(8, 4, 8, 4)
+                    }
+                    container.addView(itemView)
+                }
+            }
+        }
+    }
 
     private fun observeViewModel() {
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                launch {
-                    combine(viewModel.wayGeometry, viewModel.bounds) { points, bounds ->
-                        points to bounds
-                    }.collect { (points, bounds) ->
-                        if (points.isNotEmpty()) {
-                            Log.d("Polygon", "observeViewModel: $points")
-                            mapHandler.drawPolygon(points, bounds)
-                        }
-                    }
-                }
-                launch {
-                    viewModel.placeInfo.collect {
-                        if (it != null) {
-                            placeInfo = it
-                        }
-                        updatePlaceInfo(it)
-                    }
-                }
 
-                launch {
-                    viewModel.errorMessage.collect {
-                        if (it != null) {
-                            Toast.makeText(this@MainActivity, it, Toast.LENGTH_SHORT).show()
-                            viewModel.clearErrorMessage()
-                        }
-                    }
-                }
-                launch {
-                    viewModel.altitude.collect {
-                        Log.d("MainActivity", "observeViewModel: Altitude: $it")
-                        if (it != null) {
-                            binding.tvAltitude.text = "Altitude: $it m"
-                            binding.tvAltitude.visibility = View.VISIBLE
-                        } else {
-                            binding.tvAltitude.visibility = View.GONE
-                        }
-                    }
-                }
+                    launch {
 
-                launch {
-                    viewModel.places.collect {
-                        Log.d("SearchResults", "onViewCreated: $it")
-                        adapter.submitList(it)
-                    }
-                }
-                launch {
-                    viewModel.isLoading.collect {
-                        isLoading = it
-                        adapter.showLoadingIndicator(it)
-                        placeDetailsBinding.pbPlaceDetails.isVisible = it
-                        routeDetailsBinding.pbRouteDetails.isVisible = it
-                        placeDetailsBinding.llPlaceDetails.isVisible = !it
-                        routeDetailsBinding.llRouteDetails.isVisible = !it
-                    }
-                }
-
-                launch {
-                    viewModel.route.collect {
-                        if (it.isNotEmpty()) {
-                            mapHandler.drawRoute(it) }
-                    }
-                }
-
-                launch {
-                    viewModel.routeDetails.collect {
-                        if (it != null) {
-                            routeDetailsBinding.tvDistance.text = "Length: ${it.length}"
-                            routeDetailsBinding.tvTime.text = "Time: ${it.time}"
-                            binding.etDestination.visibility = View.GONE
-                            binding.divider.visibility = View.GONE
-                            binding.etStartLocation.text.clear()
-                            binding.etStartLocation.setHint("Search Location")
-                            searchRoute = false
+                        viewModel.geometry.collect {
+                            when (it) {
+                                is GeoJsonGeometry.Polygon -> mapHandler.drawPolygon(it.coordinates.map { it.map { GeoPoint(it.latitude,it.longitude) } })
+                                is GeoJsonGeometry.MultiPolygon -> mapHandler.drawMultiPolygon(it.coordinates.map { it.map { it.map { GeoPoint(it.latitude,it.longitude) } } })
+                                is GeoJsonGeometry.LineString -> mapHandler.drawPolyline(it.coordinates.map { GeoPoint(it.latitude,it.longitude) })
+                                is GeoJsonGeometry.MultiLineString -> mapHandler.drawMultiPolyline(it.coordinates.map { it.map { GeoPoint(it.latitude,it.longitude) } })
+                                else -> {}
+                            }
                         }
                     }
-                }
 
-                launch {
-                    viewModel.border.collect {
-                        if (it.isNotEmpty()) {
-                            mapHandler.drawBorder(it)
-                            viewModel.calculateDistances(currentLocation, it)
+                    launch {
+                        viewModel.placeInfo.collect {
+                            if (it != null) {
+//                            populateTemplate(placeDetailsBinding.llPlaceDetails, districtTemplate) // Change template as needed
+
+                                placeInfo = it
+                            }
+//                            updatePlaceInfo(it)
                         }
                     }
-                }
-                launch {
-                    viewModel.distances.collect {
-                        if (it != null) {
-                            binding.fabDistance.visibility = View.VISIBLE
-                            borderDistances = it
-                        } else {
-                            binding.fabDistance.visibility = View.GONE
+
+
+                    launch {
+                        viewModel.altitude.collect {
+                            if (it != null) {
+                                binding.tvAltitude.text = "Altitude: $it m"
+                                binding.tvAltitude.visibility = View.VISIBLE
+                            } else {
+                                binding.tvAltitude.visibility = View.GONE
+                            }
                         }
-                        Log.d("Distances", "Distances: ${it?.entries}")
+                    }
+
+                    launch {
+                        viewModel.places.collect {
+                            Log.d("SearchResults", "onViewCreated: $it")
+                            adapter.submitList(it)
+                            adapter.showShowMoreButton(true)
+                        }
+                    }
+                    launch {
+                        viewModel.isLoading.collect {
+
+                            isLoading = it
+                            adapter.showLoadingIndicator(it)
+                            adapter.showShowMoreButton(!it)
+                            placeDetailsBinding.pbPlaceDetails.isVisible = it
+                            routeDetailsBinding.pbRouteDetails.isVisible = it
+                            placeDetailsBinding.llPlaceDetailsContainer.isVisible = !it
+                            routeDetailsBinding.llRouteDetails.isVisible = !it
+                        }
+                    }
+
+                    launch {
+                        viewModel.route.collect {
+                            if (it.isNotEmpty()) {
+                                mapHandler.drawRoute(it.map { GeoPoint(it.latitude,it.longitude) })
+                            }
+                        }
+                    }
+
+                    launch {
+                        viewModel.routeDetails.collect {
+                            if (it != null) {
+                                routeDetailsBinding.tvDistance.text = "Length: ${it.length}"
+                                routeDetailsBinding.tvTime.text = "Time: ${it.time}"
+                                binding.etDestination.visibility = View.GONE
+                                binding.divider.visibility = View.GONE
+                                binding.etStartLocation.text.clear()
+                                binding.etStartLocation.setHint("Search Location")
+                                searchRoute = false
+                            }
+                        }
+                    }
+
+                    launch {
+                        viewModel.border.collect { border ->
+
+                            if (border.isNotEmpty()) {
+                                mapHandler.drawBorder(border.map { it.map { it.toGeoPoint() } })
+                                currentLocation?.let {
+                                    viewModel.calculateDistances(Coordinates(it.latitude,it.longitude), border)
+                                }
+                            }
+                            binding.fabDistance.isVisible = border.isNotEmpty()
+
+                        }
+                    }
+                    launch {
+                        viewModel.distances.collect {
+                            if (it != null) {
+                                borderDistances = it
+                            }
+                        }
+                    }
+                    launch {
+                        viewModel.placeDetails.collect {
+                            it?.let {
+                                when (it) {
+                                    is CountryDetails -> {
+                                        val dataMap = mapOf(
+                                            "capital" to it.capital,
+                                            "continent" to it.continent,
+                                            "coordinates" to it.coordinates,
+                                            "area" to it.area,
+                                            "language" to it.language,
+                                            "population" to it.population,
+                                            "borders" to it.borders
+                                        )
+                                        placeDetailsBinding.tvHeading.text = it.name
+                                        populateTemplate(placeDetailsBinding.llPlaceDetails, countryTemplate, dataMap)
+                                    }
+
+                                    is StateDetails -> {
+                                        val dataMap = mapOf(
+                                            "country" to it.country,
+                                            "capital" to it.capital,
+                                            "coordinates" to it.coordinates,
+                                            "area" to it.area,
+                                            "borders" to it.borders,
+                                            "summary" to it.summary
+                                        )
+                                        placeDetailsBinding.tvHeading.text = it.name
+                                        populateTemplate(placeDetailsBinding.llPlaceDetails, stateTemplate, dataMap)
+                                    }
+
+                                    is DistrictDetails -> {
+                                        val dataMap = mapOf(
+                                            "state" to it.state,
+                                            "coordinates" to it.coordinates,
+                                            "area" to it.area,
+                                            "borders" to it.borders,
+                                            "summary" to it.summary
+                                        )
+                                        placeDetailsBinding.tvHeading.text = it.name
+                                        populateTemplate(placeDetailsBinding.llPlaceDetails, districtTemplate, dataMap)
+                                    }
+
+                                    is RiverDetails -> {
+                                        val dataMap = mapOf(
+                                            "length" to it.length,
+                                            "origin" to it.origin,
+                                            "mouth" to it.mouth,
+                                            "tributaries" to it.tributaries
+                                        )
+                                        placeDetailsBinding.tvHeading.text = it.name
+                                        populateTemplate(placeDetailsBinding.llPlaceDetails, riverTemplate, dataMap)
+
+                                    }
+
+                                    is OtherAreaDetails -> {
+                                        val dataMap = mapOf(
+                                            "type" to it.type,
+                                            "area" to it.area,
+                                            "address" to it.address
+                                        )
+                                        placeDetailsBinding.tvHeading.text = it.name
+                                        populateTemplate(placeDetailsBinding.llPlaceDetails, otherAreaTemplate, dataMap)
+
+                                    }
+
+                                }
+                        }
                     }
                 }
             }
         }
     }
 
-    private fun updatePlaceInfo(placeInfo: PlaceInfo?) {
-        placeInfo?.let {
-            Log.d("MainActivity", "placeInfo: ${it.address}")
-            placeDetailsBinding.apply {
-                tvName.text = it.name
-                tvArea.text = "${it.area} km²"
-                tvType.text = it.type
-                tvAddress.text = it.address
-            }
-        }
-    }
+//    private fun updatePlaceInfo(placeInfo: PlaceInfo?) {
+//        placeInfo?.let {
+//            placeDetailsBinding.apply {
+//                tvName.text = it.name
+//                tvArea.text = "${it.area} km²"
+//                tvType.text = it.type
+//                tvAddress.text = it.displayName
+//            }
+//        }
+//    }
 
     private fun requestLocationPermission() {
         if (!checkLocationPermission()) {
@@ -459,37 +593,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerView() {
-        adapter = PlaceAdapter() { selectedItem ->
-            val place = PlaceInfo.Builder()
-            place.setName(selectedItem.name)
-            place.setType(selectedItem.type)
-            place.setAddress(selectedItem.displayName)
-
-            viewModel.selectedPlace = selectedItem
-
-            if (searchRoute) {
-                routeDetailsBinding.tvStartDestination.text = selectedItem.name
-
-                viewModel.getRoute(
-                    listOf(
-                        LatLon(selectedItem.lat, selectedItem.lon),
-                        LatLon(selectedPlace!!.lat, selectedPlace!!.lon)
-                    )
-                )
-                selectedPlace = null
-                hidePlaces()
-                hidePlaceDetails()
-                showRouteDetails()
-            } else {
-                viewModel.getGeometry(selectedItem.osmId, place, selectedItem.osmType)
-                showPlaceDetails()
-            }
-            selectedPlace = selectedItem
-
-            // Handle item click (e.g., move map to selected location)
+        adapter = PlaceAdapter ({ selectedItem ->
+            handlePlaceSelection(selectedItem)
+        }, onShowMoreClick = {
+            viewModel.fetchMorePlaces()
         }
+        )
         placesBinding.recyclerView.layoutManager = LinearLayoutManager(this)
         placesBinding.recyclerView.adapter = adapter
+
         placesBinding.recyclerView.addOnItemTouchListener(object :
             RecyclerView.OnItemTouchListener {
             override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
@@ -497,31 +609,51 @@ class MainActivity : AppCompatActivity() {
                 return false
             }
 
-            override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {
-                TODO("Not yet implemented")
-            }
+            override fun onTouchEvent(rv: RecyclerView, e: MotionEvent) {}
 
-            override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
-                TODO("Not yet implemented")
-            }
-        })
-
-        placesBinding.recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                super.onScrolled(recyclerView, dx, dy)
-                val layoutManager = recyclerView.layoutManager as LinearLayoutManager
-                val lastVisibleItem = layoutManager.findLastCompletelyVisibleItemPosition()
-                val totalItemCount = layoutManager.itemCount
-
-                if (!isLoading && lastVisibleItem == totalItemCount - 1) {
-                    viewModel.fetchMorePlaces() // Fetch more data only when the last item is fully visible
-                }
-            }
+            override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {}
         })
 
     }
 
-    fun showPlaceDetailsDialog(north: String, south: String, east: String, west: String) {
+    private fun handlePlaceSelection(selectedItem: Place) {
+        val place = PlaceInfo.Builder()
+            .setName(selectedItem.name)
+            .setType(selectedItem.type)
+            .setAddress(selectedItem.displayName)
+
+        placeInfo = place.build()
+//        viewModel.selectedPlace = selectedItem
+
+        if (searchRoute) {
+
+            processRouteRequest(selectedItem)
+        } else {
+            viewModel.getActualGeometry(selectedItem.osmId, place, selectedItem.osmType)
+//            viewModel.getActualPlaceDetails(selectedItem.osmId,place, selectedItem.osmType)
+            showPlaceDetails()
+        }
+        selectedPlace = selectedItem
+
+    }
+
+    private fun processRouteRequest(startLocation: Place) {
+        routeDetailsBinding.tvStartDestination.text = startLocation.name
+
+        val destination = selectedPlace ?: return
+        viewModel.getRoute(
+            listOf(
+                LatLon(destination.lat, destination.lon),
+                LatLon(startLocation.lat, startLocation.lon)
+            )
+        )
+        selectedPlace = null
+        hidePlaces()
+        hidePlaceDetails()
+        showRouteDetails()
+    }
+
+    private fun showPlaceDetailsDialog(north: String, south: String, east: String, west: String) {
         val dialogView: View = LayoutInflater.from(this).inflate(R.layout.distance_dialog, null)
 
         val tvDistanceNorth: TextView = dialogView.findViewById(R.id.tvDistanceNorth)

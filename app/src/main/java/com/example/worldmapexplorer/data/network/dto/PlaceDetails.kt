@@ -12,13 +12,5 @@ data class PlaceDetails(
         @field: Json(name = "geometry") val geometry: List<LatLon>,
         @field: Json(name = "bounds") val bounds: Bounds,
         @field: Json(name = "tags") val tags: Map<String,String>
-    ) {
-        @JsonClass(generateAdapter = true)
-        data class Bounds(
-            @field: Json(name = "minlat") val minLat: Double,
-            @field: Json(name = "minlon") val minLon: Double,
-            @field: Json(name = "maxlat") val maxLat: Double,
-            @field: Json(name = "maxlon") val maxLon: Double
-        )
-    }
+    )
 }

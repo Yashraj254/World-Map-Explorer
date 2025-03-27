@@ -12,12 +12,12 @@
     app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
     <LinearLayout
-        android:id="@+id/ll_place_details"
+        android:id="@+id/ll_place_details_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="?attr/colorSurface"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:visibility="invisible">
 
 
         <androidx.constraintlayout.widget.ConstraintLayout
@@ -28,12 +28,14 @@
 
             <TextView
                 android:id="@+id/tv_heading"
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp"
                 android:paddingBottom="8dp"
                 android:text="Place Details"
-                android:textSize="18sp"
+                android:textSize="22sp"
                 android:textStyle="bold"
+                app:layout_constraintEnd_toEndOf="@id/btn_close_sheet"
                 app:layout_constraintBottom_toBottomOf="@id/header_layout"
                 app:layout_constraintStart_toStartOf="@id/header_layout"
                 app:layout_constraintTop_toTopOf="@id/header_layout" />
@@ -42,7 +44,6 @@
                 android:id="@+id/btn_close_sheet"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
-                android:layout_gravity="end"
                 android:contentDescription="Close"
                 android:src="@drawable/ic_close"
                 app:layout_constraintBottom_toBottomOf="@id/header_layout"
@@ -50,72 +51,13 @@
                 app:layout_constraintTop_toTopOf="@id/header_layout" />
         </androidx.constraintlayout.widget.ConstraintLayout>
 
-        <!-- Name -->
-        <TextView
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:id="@+id/ll_place_details"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Name"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvName"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingBottom="8dp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="16sp" />
-
-        <!-- Type -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Type"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvType"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingBottom="8dp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="16sp" />
-
-        <!-- Area -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Area"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvArea"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingBottom="8dp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="16sp" />
-
-        <!-- Address -->
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Address"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvAddress"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="16sp" />
+            android:background="?attr/colorSurface"
+            android:orientation="vertical"
+            android:padding="8dp"/>
 
 
         <!-- Buttons -->
@@ -126,8 +68,7 @@
             android:layout_gravity="center"
             android:layout_marginTop="16dp"
             android:drawableLeft="@drawable/ic_directions"
-            android:text="Directions"
-            android:visibility="visible" />
+            android:text="Directions" />
 
     </LinearLayout>
 

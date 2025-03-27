@@ -12,5 +12,6 @@ data class Place(
     @field: Json(name = "name") val name: String,
     @field: Json(name = "type") val type: String,
     @field: Json(name = "lat") val lat: Double,
-    @field: Json(name = "lon") val lon: Double
+    @field: Json(name = "lon") val lon: Double,
+    @field: Json(name = "boundingbox") val boundingBox: List<Double>
 )

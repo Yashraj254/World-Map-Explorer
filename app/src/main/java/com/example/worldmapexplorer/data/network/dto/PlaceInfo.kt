@@ -2,7 +2,7 @@ package com.example.worldmapexplorer.data.network.dto
 
 class PlaceInfo(
     val name: String,
-    val address: String,
+    val displayName: String,
     val type: String,
     val area: Float? = null
 ) {

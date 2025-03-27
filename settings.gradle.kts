@@ -16,6 +16,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        flatDir {
+            dirs("libs") // Ensures AARs in the 'libs' folder are recognized
+        }
     }
 }
 
