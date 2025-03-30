@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.osmdroid.util.BoundingBox
+import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -74,13 +75,15 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
     val distances: StateFlow<Map<String, Float>?> = _distances
 
     fun fetchPlaces(query: String) = viewModelScope.launch {
+        Timber.d("Fetching places for query: $query")
         _isLoading.emit(true)
         _searchQuery.value = query
         excludedPlaceIds.clear()
 
         placesRepository.fetchPlaces(query, "").suspendOnSuccess {
+            Timber.d("Fetched ${data.size} places")
             _places.emit(data)
-            excludedPlaceIds.addAll(data.map { it.placeId }) //  Add IDs to exclusion list
+            excludedPlaceIds.addAll(data.map { it.placeId })
             _isLoading.emit(false)
             delay(2000)
         }
@@ -91,6 +94,7 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
     fun fetchMorePlaces() {
         if (_places.value.isEmpty() || isLoading.value) return
 
+        Timber.d("Fetching more places")
         searchJob?.cancel()
 
         searchJob = viewModelScope.launch {
@@ -100,6 +104,7 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
 
             placesRepository.fetchPlaces(_searchQuery.value, excludedIds)
                 .suspendOnSuccess {
+                    Timber.d("Fetched additional ${data.size} places")
                     if (data.isNotEmpty()) {
                         excludedPlaceIds.addAll(data.map { it.placeId })
                         _places.update { it + data }
@@ -109,40 +114,43 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
         }
     }
 
-
-    fun getActualGeometry(osmId: Long,placeBuilder: PlaceInfo.Builder, osmType: String) =
+    fun getActualGeometry(osmId: Long, placeBuilder: PlaceInfo.Builder, osmType: String) =
         viewModelScope.launch {
+            Timber.d("Fetching geometry for OSM ID: $osmId, Type: $osmType")
             _placeInfo.emit(null)
             _isLoading.emit(true)
             val query = "[out:json][timeout:25];$osmType($osmId);out geom;"
-            placesRepository.getGeometry(query).suspendOnSuccess {
+            placesRepository.getGeometry(query,osmType,osmId).suspendOnSuccess {
+                Timber.d("Geometry fetched successfully")
                 _geometry.emit(data)
                 getActualPlaceDetails(osmId, placeBuilder, osmType)
-
             }
         }
 
     fun getActualPlaceDetails(osmId: Long, placeBuilder: PlaceInfo.Builder, osmType: String) =
         viewModelScope.launch {
-            val place = placesRepository.getPlaceDetailsForWiki(osmType,placeBuilder.build(), osmId)
+            Timber.d("Fetching place details for OSM ID: $osmId, Type: $osmType")
+            val place = placesRepository.getPlaceDetailsForWiki(osmType, placeBuilder.build(), osmId)
             _placeDetails.emit(place)
             _isLoading.emit(false)
         }
 
     fun getPlaceDetails(lat: Double, lon: Double, zoom: Int) = viewModelScope.launch {
+        Timber.d("Fetching place details for lat: $lat, lon: $lon, zoom: $zoom")
         placesRepository.getPlaceDetails(lat, lon, zoom).suspendOnSuccess {
             val placeInfo = PlaceInfo.Builder()
             placeInfo.setName(data.name)
             placeInfo.setType(data.type)
             placeInfo.setAddress(data.displayName)
-            getActualGeometry(data.osmId,placeInfo, data.osmType)
+            getActualGeometry(data.osmId, placeInfo, data.osmType)
         }
     }
 
-
     fun getRoute(locations: List<LatLon>) = viewModelScope.launch(Dispatchers.IO) {
+        Timber.d("Fetching route for ${locations.size} locations")
         _isLoading.emit(true)
         placesRepository.getRoute(locations).suspendOnSuccess {
+            Timber.d("Route fetched successfully")
             val decodedRoute = decodePolyline(data.trip.legs[0].shape)
             _route.emit(decodedRoute)
             _routeDetails.emit(
@@ -156,31 +164,35 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
     }
 
     fun getElevation(lat: Double, lon: Double) = viewModelScope.launch {
+        Timber.d("Fetching elevation for lat: $lat, lon: $lon")
         placesRepository.getElevation(lat, lon).suspendOnSuccess {
+            Timber.d("Elevation fetched: ${data.results[0].elevation}")
             _altitude.emit(data.results[0].elevation)
         }
     }
 
     fun clearErrorMessage() {
+        Timber.d("Clearing error message")
         _errorMessage.value = null
     }
 
     fun getBorder(lat: Double, lon: Double, zoom: Int) {
-
-        searchJob?.cancel() // 🚀 Cancel previous job (Debounce)
+        Timber.d("Fetching border for lat: $lat, lon: $lon, zoom: $zoom")
+        searchJob?.cancel()
 
         searchJob = viewModelScope.launch(Dispatchers.IO) {
             calculateDistances(Coordinates(lat, lon), _border.value)
-
             _border.value.forEach {
                 if (isPointInPolygon(Coordinates(lat, lon), it)) {
+                    Timber.d("Point is within existing border, no need to fetch new data")
                     return@launch
                 }
             }
 
-            delay(2000) // ✅ Apply debounce (1 request in 2 seconds)
+            delay(2000)
             placesRepository.getPlacesBorder(lat, lon, zoom)
                 .suspendOnSuccess {
+                    Timber.d("Fetched border data successfully")
                     val coordinates = data.features[0].geometry.coordinates
                     val nestedList = parseCoordinates(coordinates, data.features[0].geometry.type)
                     _border.emit(nestedList)
@@ -189,7 +201,7 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
     }
 
     private fun parseCoordinates(coordinates: List<*>, type: String): List<List<Coordinates>> {
-
+        Timber.d("Parsing coordinates of type: $type")
         return when (type) {
             "Polygon" -> listOf(parsePolygon(coordinates))
             "MultiPolygon" -> coordinates.mapNotNull { parsePolygon(it as? List<*>) }
@@ -208,8 +220,10 @@ class MainViewModel @Inject constructor(private val placesRepository: PlacesRepo
 
     fun calculateDistances(marker: Coordinates, polygons: List<List<Coordinates>>) =
         viewModelScope.launch {
+            Timber.d("Calculating distances for marker: $marker")
             val borderPoints = findBorderPoints(marker, polygons)
             val distances = borderPoints.calculateDistances(marker)
+            Timber.d("Distances calculated: $distances")
             _distances.emit(distances)
         }
 

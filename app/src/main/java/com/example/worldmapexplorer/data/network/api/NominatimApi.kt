@@ -24,5 +24,4 @@ interface NominatimApi {
         @Query("format") format: String = "json",
     ): ApiResponse<ResponseBody>
 
-//    https://nominatim.openstreetmap.com/details?osmtype=R&osmid=1976132&addressdetails=1&format=json
 }

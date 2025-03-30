@@ -31,14 +31,20 @@ class MapHandler(
     private var currentRivers: List<Polyline>? = null
     private var route: Polyline? = null
     var place: Polygon? = null
+    private var point: Marker? = null
+
     private var currentMarker: Marker? = null  // Store last marker reference
     private lateinit var startMarker: Marker
     private lateinit var endMarker: Marker
-    private var node: Marker? = null
+//    private var node: Marker? = null
 
     //    private var polygon: Polygon? = null
     private var polygons: ArrayList<Polygon> = ArrayList()
     private var polylines: ArrayList<Polyline> = ArrayList()
+    private var nodes: ArrayList<Marker> = ArrayList()
+    private var polygon: Polygon? = null
+    private var polyline: Polyline? = null
+    private var node: Marker? = null
 
     fun setupMap() {
         mapView.setTileSource(TileSourceFactory.MAPNIK)
@@ -89,22 +95,7 @@ class MapHandler(
     }
 
 
-    fun addNode(location: GeoPoint) {
-        node?.let { mapView.overlays.remove(it) }
-        mapView.overlays.removeIf { it is Marker }
 
-        val marker = Marker(mapView).apply {
-            position = location
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            icon = ContextCompat.getDrawable(context, R.drawable.ic_node)
-            infoWindow = null
-            setOnMarkerClickListener { marker, mapView -> true }
-        }
-
-        mapView.overlays.add(marker)
-        node = marker
-        mapView.invalidate()
-    }
 
     fun drawPolygon(points: List<GeoPoint>, boundingBox: BoundingBox) {
         val padding = 0.0005  // Adjust this value for more/less padding
@@ -159,14 +150,12 @@ class MapHandler(
         mapView.invalidate()
     }
 
-    fun drawPolygon(points: List<List<GeoPoint>>) {
+    fun drawPolygon(points: List<List<GeoPoint>>, center: GeoPoint) {
         if (points.isEmpty()) {
             return
         }
 
-        polygons.forEach {
-            mapView.overlays.remove(it)
-        }
+        removeAll()
 
         points.forEach { polygonPoints ->
             Polygon(mapView).apply {
@@ -183,18 +172,18 @@ class MapHandler(
 
 
         mapView.controller.apply {
-            setCenter(points.first().first())
-//            setZoom(18.0)
+            setCenter(center)
+            setZoom(18.0)
         }
         mapView.invalidate()
     }
 
-    fun drawMultiPolygon(points: List<List<List<GeoPoint>>>) {
+    fun drawMultiPolygon(points: List<List<List<GeoPoint>>>, center: GeoPoint) {
         if (points.isEmpty()) {
             return
         }
 
-        currentBorders?.forEach { mapView.overlayManager.remove(it) }
+        removeAll()
 
         points.forEach { polygon ->
             polygon.forEach { polygonPoints ->
@@ -211,21 +200,20 @@ class MapHandler(
             }
         }
         mapView.controller.apply {
-            setCenter(points.first().first().first())
+            setCenter(center)
+            setZoom(18.0)
         }
         mapView.invalidate()
     }
 
-    fun drawPolyline(points: List<GeoPoint>) {
+    fun drawPolyline(points: List<GeoPoint>, center: GeoPoint) {
         if (points.isEmpty()) {
             return
         }
 
-        polylines.forEach {
-            mapView.overlays.remove(it)
-        }
+        removeAll()
 
-        Polyline(mapView).apply {
+        polyline = Polyline(mapView).apply {
             color = Color.RED
             width = 8f
             this.setPoints(points)
@@ -236,19 +224,18 @@ class MapHandler(
 
 
         mapView.controller.apply {
-            setCenter(points.first())
+            setCenter(center)
             setZoom(18.0)
         }
         mapView.invalidate()
     }
 
-    fun drawMultiPolyline(points: List<List<GeoPoint>>) {
+    fun drawMultiPolyline(points: List<List<GeoPoint>>, center: GeoPoint) {
         if (points.isEmpty()) {
             return
         }
-        polylines.forEach { mapView.overlayManager.remove(it) }
+        removeAll()
 
-        // Draw each polygon separately
         points.map { polylinePoints ->
             Polyline(mapView).apply {
                 this.setPoints(polylinePoints)
@@ -261,19 +248,69 @@ class MapHandler(
             }
         }
 
+
+        mapView.controller.apply {
+            setCenter(center)
+            setZoom(18.0)
+        }
+
         mapView.invalidate()
     }
 
-    fun drawPoint(point: GeoPoint) {}
+    fun drawNode(location: GeoPoint) {
+        removeAll()
 
-    fun drawMultiPoint(points: List<GeoPoint>) {}
+         Marker(mapView).apply {
+            position = location
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            icon = ContextCompat.getDrawable(context, R.drawable.ic_node)
+            infoWindow = null
+            setOnMarkerClickListener { marker, mapView -> true }
+        }.also {
+            node = it
+            mapView.overlayManager.add(it)
+        }
+
+        mapView.controller.apply {
+            setCenter(location)
+        }
+        mapView.invalidate()
+    }
+
+
+    fun drawMultiPoint(points: List<GeoPoint>) {
+        if (points.isEmpty()) {
+            return
+        }
+
+        removeAll()
+
+        points.map {
+            Marker(mapView).apply {
+                position = points.first()
+                icon = ContextCompat.getDrawable(
+                    context,
+                    R.drawable.ic_node
+                )
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            }.also {
+                this.nodes.add(it)
+                mapView.overlayManager.add(it)
+            }
+        }
+
+        mapView.controller.apply {
+            setCenter(points.first())
+        }
+        mapView.invalidate()
+    }
 
     fun drawRoute(points: List<GeoPoint>) {
         if (points.isEmpty()) {
             return
         }
 
-        route?.let { mapView.overlays.remove(it) }
+        removeAll()
 
         val polyline = Polyline(mapView).apply {
             color = Color.BLUE
@@ -286,7 +323,7 @@ class MapHandler(
             icon = ContextCompat.getDrawable(
                 context,
                 R.drawable.ic_marker
-            ) // Replace with your marker icon
+            )
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         }
 
@@ -295,7 +332,7 @@ class MapHandler(
             icon = ContextCompat.getDrawable(
                 context,
                 R.drawable.ic_destination
-            ) // Replace with your marker icon
+            )
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         }
 
@@ -360,11 +397,24 @@ class MapHandler(
         polygons.forEach {
             mapView.overlays.remove(it)
         }
-        place?.let {
-            mapView.overlays.remove(it) // Remove polygon from overlays
-            place = null // Reset reference
+        polygons.clear()
+        mapView.invalidate()
+    }
+
+    fun removePolylines(){
+        polylines.forEach {
+            mapView.overlays.remove(it)
         }
-        mapView.invalidate() // Force map refresh
+        polylines.clear()
+        mapView.invalidate()
+    }
+
+    fun removeNodes(){
+        nodes.forEach {
+            mapView.overlays.remove(it)
+        }
+        nodes.clear()
+        mapView.invalidate()
     }
 
     fun removeRoute() {
@@ -377,4 +427,10 @@ class MapHandler(
         mapView.invalidate()
     }
 
+    fun removeAll(){
+        removePolylines()
+        removeRoute()
+        removeNodes()
+        removePolygon()
+    }
 }

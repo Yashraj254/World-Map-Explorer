@@ -10,7 +10,6 @@ import android.graphics.Typeface
 import android.location.LocationManager
 import android.os.Bundle
 import android.preference.PreferenceManager
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -60,7 +59,6 @@ import com.example.worldmapexplorer.utils.toGeoPoint
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
@@ -112,14 +110,12 @@ class MainActivity : AppCompatActivity() {
         initializeBindings()
         setContentView(binding.root)
 
-
         requestLocationPermission()
         setupWindowInsets()
         setupUIListeners()
         observeViewModel()
         setupRecyclerView()
         setupBottomSheets()
-
 
         mapHandler = MapHandler(this, binding.mapView)
         mapHandler.setupMap()
@@ -208,13 +204,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-
         placeDetailsBinding.btnDirections.setOnClickListener { v ->
             setupDirectionsUI()
             showKeyboard(v)
-//            placeDetailsBinding.bottomSheetPlaceDetails.visibility = View.GONE
         }
         setUpFabListeners()
+
         // add marker on click event
         setupMapClickListener()
     }
@@ -285,7 +280,6 @@ class MainActivity : AppCompatActivity() {
                 val projection = mapView.projection
                 val geoPoint = projection.fromPixels(e.x.toInt(), e.y.toInt()) as GeoPoint
                 currentLocation = geoPoint
-                Log.d("MapClick", "Clicked at: ${geoPoint.latitude}, ${geoPoint.longitude}")
                 viewModel.getElevation(geoPoint.latitude, geoPoint.longitude)
                 mapHandler.addMarker(geoPoint)
                 viewModel.clearBorder()
@@ -298,7 +292,6 @@ class MainActivity : AppCompatActivity() {
                 val projection = mapView.projection
                 val geoPoint = projection.fromPixels(e.x.toInt(), e.y.toInt()) as GeoPoint
                 currentLocation = geoPoint
-                Log.d("MapClick", "Clicked at: ${geoPoint.latitude}, ${geoPoint.longitude}")
                 viewModel.getPlaceDetails(geoPoint.latitude, geoPoint.longitude, mapView.zoomLevel)
                 showPlaceDetails()
                 hideRouteDetails()
@@ -363,7 +356,11 @@ class MainActivity : AppCompatActivity() {
         imm.showSoftInput(view, 0)
     }
 
-    private fun populateTemplate(container: LinearLayout, template: List<TemplateSection>, dataMap: Map<String, String?>) {
+    private fun populateTemplate(
+        container: LinearLayout,
+        template: List<TemplateSection>,
+        dataMap: Map<String, String?>
+    ) {
         container.removeAllViews()
 
         template.forEach { section ->
@@ -381,14 +378,16 @@ class MainActivity : AppCompatActivity() {
                 container.addView(headerView)
             } else if (section.type == "list" || section.type == "paragraph") {
                 section.items?.forEach { item ->
-                    val value = dataMap[item.key] ?: "N/A" // Get value from map
+                    val value = dataMap[item.key]?.takeIf { it.isNotEmpty() } // Skip empty values
 
-                    val itemView = TextView(this).apply {
-                        text = "${item.label}: $value" // Format label + value
-                        textSize = 16f
-                        setPadding(8, 4, 8, 4)
+                    if (value != null) { // Only add if value is not empty
+                        val itemView = TextView(this).apply {
+                            text = "${item.label}: $value" // Format label + value
+                            textSize = 16f
+                            setPadding(8, 4, 8, 4)
+                        }
+                        container.addView(itemView)
                     }
-                    container.addView(itemView)
                 }
             }
         }
@@ -398,188 +397,232 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
 
-                    launch {
+                launch {
+                    viewModel.geometry.collect {
+                        when (it) {
+                            is GeoJsonGeometry.Polygon -> mapHandler.drawPolygon(it.coordinates.map {
+                                it.map {
+                                    GeoPoint(
+                                        it.latitude,
+                                        it.longitude
+                                    )
+                                }
+                            },it.center)
 
-                        viewModel.geometry.collect {
+                            is GeoJsonGeometry.MultiPolygon -> mapHandler.drawMultiPolygon(it.coordinates.map {
+                                it.map {
+                                    it.map {
+                                        GeoPoint(
+                                            it.latitude,
+                                            it.longitude
+                                        )
+                                    }
+                                }
+                            },it.center)
+
+                            is GeoJsonGeometry.LineString -> mapHandler.drawPolyline(it.coordinates.map {
+                                GeoPoint(
+                                    it.latitude,
+                                    it.longitude
+                                )
+                            },it.center)
+
+                            is GeoJsonGeometry.MultiLineString -> mapHandler.drawMultiPolyline(it.coordinates.map {
+                                it.map {
+                                    GeoPoint(
+                                        it.latitude,
+                                        it.longitude
+                                    )
+                                }
+                            },it.center)
+
+                            is GeoJsonGeometry.Point -> mapHandler.drawNode(it.coordinates.toGeoPoint())
+
+                            is GeoJsonGeometry.MultiPoint -> mapHandler.drawMultiPoint(it.coordinates.map { it.toGeoPoint() })
+
+                            else -> {}
+                        }
+                    }
+                }
+
+                launch {
+                    viewModel.placeInfo.collect {
+                        if (it != null) {
+                            placeInfo = it
+                        }
+                    }
+                }
+
+
+                launch {
+                    viewModel.altitude.collect {
+                        if (it != null) {
+                            binding.tvAltitude.text = "Altitude: $it m"
+                            binding.tvAltitude.visibility = View.VISIBLE
+                        } else {
+                            binding.tvAltitude.visibility = View.GONE
+                        }
+                    }
+                }
+
+                launch {
+                    viewModel.places.collect {
+                        adapter.submitList(it)
+                        adapter.showShowMoreButton(true)
+                    }
+                }
+                launch {
+                    viewModel.isLoading.collect {
+
+                        isLoading = it
+                        adapter.showLoadingIndicator(it)
+                        adapter.showShowMoreButton(!it)
+                        placeDetailsBinding.pbPlaceDetails.isVisible = it
+                        routeDetailsBinding.pbRouteDetails.isVisible = it
+                        placeDetailsBinding.llPlaceDetailsContainer.isVisible = !it
+                        routeDetailsBinding.llRouteDetails.isVisible = !it
+                    }
+                }
+
+                launch {
+                    viewModel.route.collect {
+                        if (it.isNotEmpty()) {
+                            mapHandler.drawRoute(it.map { GeoPoint(it.latitude, it.longitude) })
+                        }
+                    }
+                }
+
+                launch {
+                    viewModel.routeDetails.collect {
+                        if (it != null) {
+                            routeDetailsBinding.tvDistance.text = "Length: ${it.length}"
+                            routeDetailsBinding.tvTime.text = "Time: ${it.time}"
+                            binding.etDestination.visibility = View.GONE
+                            binding.divider.visibility = View.GONE
+                            binding.etStartLocation.text.clear()
+                            binding.etStartLocation.setHint("Search Location")
+                            searchRoute = false
+                        }
+                    }
+                }
+
+                launch {
+                    viewModel.border.collect { border ->
+
+                        if (border.isNotEmpty()) {
+                            mapHandler.drawBorder(border.map { it.map { it.toGeoPoint() } })
+                            currentLocation?.let {
+                                viewModel.calculateDistances(
+                                    Coordinates(it.latitude, it.longitude),
+                                    border
+                                )
+                            }
+                        }
+                        binding.fabDistance.isVisible = border.isNotEmpty()
+
+                    }
+                }
+                launch {
+                    viewModel.distances.collect {
+                        if (it != null) {
+                            borderDistances = it
+                        }
+                    }
+                }
+                launch {
+                    viewModel.placeDetails.collect {
+                        it?.let {
                             when (it) {
-                                is GeoJsonGeometry.Polygon -> mapHandler.drawPolygon(it.coordinates.map { it.map { GeoPoint(it.latitude,it.longitude) } })
-                                is GeoJsonGeometry.MultiPolygon -> mapHandler.drawMultiPolygon(it.coordinates.map { it.map { it.map { GeoPoint(it.latitude,it.longitude) } } })
-                                is GeoJsonGeometry.LineString -> mapHandler.drawPolyline(it.coordinates.map { GeoPoint(it.latitude,it.longitude) })
-                                is GeoJsonGeometry.MultiLineString -> mapHandler.drawMultiPolyline(it.coordinates.map { it.map { GeoPoint(it.latitude,it.longitude) } })
-                                else -> {}
-                            }
-                        }
-                    }
-
-                    launch {
-                        viewModel.placeInfo.collect {
-                            if (it != null) {
-//                            populateTemplate(placeDetailsBinding.llPlaceDetails, districtTemplate) // Change template as needed
-
-                                placeInfo = it
-                            }
-//                            updatePlaceInfo(it)
-                        }
-                    }
-
-
-                    launch {
-                        viewModel.altitude.collect {
-                            if (it != null) {
-                                binding.tvAltitude.text = "Altitude: $it m"
-                                binding.tvAltitude.visibility = View.VISIBLE
-                            } else {
-                                binding.tvAltitude.visibility = View.GONE
-                            }
-                        }
-                    }
-
-                    launch {
-                        viewModel.places.collect {
-                            Log.d("SearchResults", "onViewCreated: $it")
-                            adapter.submitList(it)
-                            adapter.showShowMoreButton(true)
-                        }
-                    }
-                    launch {
-                        viewModel.isLoading.collect {
-
-                            isLoading = it
-                            adapter.showLoadingIndicator(it)
-                            adapter.showShowMoreButton(!it)
-                            placeDetailsBinding.pbPlaceDetails.isVisible = it
-                            routeDetailsBinding.pbRouteDetails.isVisible = it
-                            placeDetailsBinding.llPlaceDetailsContainer.isVisible = !it
-                            routeDetailsBinding.llRouteDetails.isVisible = !it
-                        }
-                    }
-
-                    launch {
-                        viewModel.route.collect {
-                            if (it.isNotEmpty()) {
-                                mapHandler.drawRoute(it.map { GeoPoint(it.latitude,it.longitude) })
-                            }
-                        }
-                    }
-
-                    launch {
-                        viewModel.routeDetails.collect {
-                            if (it != null) {
-                                routeDetailsBinding.tvDistance.text = "Length: ${it.length}"
-                                routeDetailsBinding.tvTime.text = "Time: ${it.time}"
-                                binding.etDestination.visibility = View.GONE
-                                binding.divider.visibility = View.GONE
-                                binding.etStartLocation.text.clear()
-                                binding.etStartLocation.setHint("Search Location")
-                                searchRoute = false
-                            }
-                        }
-                    }
-
-                    launch {
-                        viewModel.border.collect { border ->
-
-                            if (border.isNotEmpty()) {
-                                mapHandler.drawBorder(border.map { it.map { it.toGeoPoint() } })
-                                currentLocation?.let {
-                                    viewModel.calculateDistances(Coordinates(it.latitude,it.longitude), border)
+                                is CountryDetails -> {
+                                    val dataMap = mapOf(
+                                        "capital" to it.capital,
+                                        "continent" to it.continent,
+                                        "coordinates" to it.coordinates,
+                                        "area" to it.area,
+                                        "language" to it.language,
+                                        "population" to it.population,
+                                        "borders" to it.borders
+                                    )
+                                    placeDetailsBinding.tvHeading.text = it.name
+                                    populateTemplate(
+                                        placeDetailsBinding.llPlaceDetails,
+                                        countryTemplate,
+                                        dataMap
+                                    )
                                 }
-                            }
-                            binding.fabDistance.isVisible = border.isNotEmpty()
 
-                        }
-                    }
-                    launch {
-                        viewModel.distances.collect {
-                            if (it != null) {
-                                borderDistances = it
-                            }
-                        }
-                    }
-                    launch {
-                        viewModel.placeDetails.collect {
-                            it?.let {
-                                when (it) {
-                                    is CountryDetails -> {
-                                        val dataMap = mapOf(
-                                            "capital" to it.capital,
-                                            "continent" to it.continent,
-                                            "coordinates" to it.coordinates,
-                                            "area" to it.area,
-                                            "language" to it.language,
-                                            "population" to it.population,
-                                            "borders" to it.borders
-                                        )
-                                        placeDetailsBinding.tvHeading.text = it.name
-                                        populateTemplate(placeDetailsBinding.llPlaceDetails, countryTemplate, dataMap)
-                                    }
+                                is StateDetails -> {
+                                    val dataMap = mapOf(
+                                        "country" to it.country,
+                                        "capital" to it.capital,
+                                        "coordinates" to it.coordinates,
+                                        "area" to it.area,
+                                        "borders" to it.borders,
+                                        "summary" to it.summary
+                                    )
+                                    placeDetailsBinding.tvHeading.text = it.name
+                                    populateTemplate(
+                                        placeDetailsBinding.llPlaceDetails,
+                                        stateTemplate,
+                                        dataMap
+                                    )
+                                }
 
-                                    is StateDetails -> {
-                                        val dataMap = mapOf(
-                                            "country" to it.country,
-                                            "capital" to it.capital,
-                                            "coordinates" to it.coordinates,
-                                            "area" to it.area,
-                                            "borders" to it.borders,
-                                            "summary" to it.summary
-                                        )
-                                        placeDetailsBinding.tvHeading.text = it.name
-                                        populateTemplate(placeDetailsBinding.llPlaceDetails, stateTemplate, dataMap)
-                                    }
+                                is DistrictDetails -> {
+                                    val dataMap = mapOf(
+                                        "state" to it.state,
+                                        "coordinates" to it.coordinates,
+                                        "area" to it.area,
+                                        "borders" to it.borders,
+                                        "summary" to it.summary
+                                    )
+                                    placeDetailsBinding.tvHeading.text = it.name
+                                    populateTemplate(
+                                        placeDetailsBinding.llPlaceDetails,
+                                        districtTemplate,
+                                        dataMap
+                                    )
+                                }
 
-                                    is DistrictDetails -> {
-                                        val dataMap = mapOf(
-                                            "state" to it.state,
-                                            "coordinates" to it.coordinates,
-                                            "area" to it.area,
-                                            "borders" to it.borders,
-                                            "summary" to it.summary
-                                        )
-                                        placeDetailsBinding.tvHeading.text = it.name
-                                        populateTemplate(placeDetailsBinding.llPlaceDetails, districtTemplate, dataMap)
-                                    }
-
-                                    is RiverDetails -> {
-                                        val dataMap = mapOf(
-                                            "length" to it.length,
-                                            "origin" to it.origin,
-                                            "mouth" to it.mouth,
-                                            "tributaries" to it.tributaries
-                                        )
-                                        placeDetailsBinding.tvHeading.text = it.name
-                                        populateTemplate(placeDetailsBinding.llPlaceDetails, riverTemplate, dataMap)
-
-                                    }
-
-                                    is OtherAreaDetails -> {
-                                        val dataMap = mapOf(
-                                            "type" to it.type,
-                                            "area" to it.area,
-                                            "address" to it.address
-                                        )
-                                        placeDetailsBinding.tvHeading.text = it.name
-                                        populateTemplate(placeDetailsBinding.llPlaceDetails, otherAreaTemplate, dataMap)
-
-                                    }
+                                is RiverDetails -> {
+                                    val dataMap = mapOf(
+                                        "length" to it.length,
+                                        "origin" to it.origin,
+                                        "mouth" to it.mouth,
+                                        "tributaries" to it.tributaries
+                                    )
+                                    placeDetailsBinding.tvHeading.text = it.name
+                                    populateTemplate(
+                                        placeDetailsBinding.llPlaceDetails,
+                                        riverTemplate,
+                                        dataMap
+                                    )
 
                                 }
+
+                                is OtherAreaDetails -> {
+                                    val dataMap = mapOf(
+                                        "type" to it.type,
+                                        "area" to it.area,
+                                        "address" to it.address
+                                    )
+
+                                    placeDetailsBinding.tvHeading.text = it.name
+                                    populateTemplate(
+                                        placeDetailsBinding.llPlaceDetails,
+                                        otherAreaTemplate,
+                                        dataMap
+                                    )
+
+                                }
+
+                            }
                         }
                     }
                 }
             }
         }
     }
-
-//    private fun updatePlaceInfo(placeInfo: PlaceInfo?) {
-//        placeInfo?.let {
-//            placeDetailsBinding.apply {
-//                tvName.text = it.name
-//                tvArea.text = "${it.area} km²"
-//                tvType.text = it.type
-//                tvAddress.text = it.displayName
-//            }
-//        }
-//    }
 
     private fun requestLocationPermission() {
         if (!checkLocationPermission()) {
@@ -593,7 +636,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerView() {
-        adapter = PlaceAdapter ({ selectedItem ->
+        adapter = PlaceAdapter({ selectedItem ->
             handlePlaceSelection(selectedItem)
         }, onShowMoreClick = {
             viewModel.fetchMorePlaces()
@@ -623,14 +666,12 @@ class MainActivity : AppCompatActivity() {
             .setAddress(selectedItem.displayName)
 
         placeInfo = place.build()
-//        viewModel.selectedPlace = selectedItem
 
         if (searchRoute) {
 
             processRouteRequest(selectedItem)
         } else {
             viewModel.getActualGeometry(selectedItem.osmId, place, selectedItem.osmType)
-//            viewModel.getActualPlaceDetails(selectedItem.osmId,place, selectedItem.osmType)
             showPlaceDetails()
         }
         selectedPlace = selectedItem

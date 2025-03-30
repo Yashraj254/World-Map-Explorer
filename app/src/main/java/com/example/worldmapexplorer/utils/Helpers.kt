@@ -339,12 +339,12 @@ fun convertSeconds(seconds: Double): String {
     return "$hours hours and $minutes minutes"
 }
 
-fun convertToGeoJSON(osmJson: String): GeoJsonGeometry {
+fun convertToGeoJSON(osmJson: String, center: GeoPoint): GeoJsonGeometry {
     try {
         val geoJson = JSONObject(OsmToGeoJson().convertOverpassJsonToGeoJson(osmJson, null))
         // Print or use the GeoJSON
         val json = geoJson.getJSONArray("features").getJSONObject(0).getJSONObject("geometry")
-        return parseGeoJsonGeometry(json)
+        return parseGeoJsonGeometry(json,center)
     } catch (e: Exception) {
         e.printStackTrace()
     }
@@ -352,7 +352,7 @@ fun convertToGeoJSON(osmJson: String): GeoJsonGeometry {
 
 }
 
-fun parseGeoJsonGeometry(json: JSONObject): GeoJsonGeometry {
+fun parseGeoJsonGeometry(json: JSONObject, center: GeoPoint): GeoJsonGeometry {
     return try {
         val type = json.getString("type")
         val coordinates = json.getJSONArray("coordinates")
@@ -366,18 +366,18 @@ fun parseGeoJsonGeometry(json: JSONObject): GeoJsonGeometry {
             "MultiPoint", "LineString" -> {
                 val coordList = coordinatesToList(coordinates)
                 if (type == "MultiPoint") GeoJsonGeometry.MultiPoint(coordList)
-                else GeoJsonGeometry.LineString(coordList)
+                else GeoJsonGeometry.LineString(coordList, center)
             }
 
             "Polygon", "MultiLineString" -> {
                 val coordList = coordinatesToListOfLists(coordinates)
-                if (type == "Polygon") GeoJsonGeometry.Polygon(coordList)
-                else GeoJsonGeometry.MultiLineString(coordList)
+                if (type == "Polygon") GeoJsonGeometry.Polygon(coordList, center)
+                else GeoJsonGeometry.MultiLineString(coordList, center)
             }
 
             "MultiPolygon" -> {
                 val coordList = coordinatesToListOfListsOfLists(coordinates)
-                GeoJsonGeometry.MultiPolygon(coordList)
+                GeoJsonGeometry.MultiPolygon(coordList, center)
             }
 
             else -> GeoJsonGeometry.Unknown("Something went wrong")

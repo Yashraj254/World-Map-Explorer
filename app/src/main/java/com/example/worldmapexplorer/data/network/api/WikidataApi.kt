@@ -15,13 +15,11 @@ interface WikidataApi {
         @Query("format") format: String = "json",
         @Query("ids") ids: String,
         @Query("props") props: String = "claims|descriptions"
-    ):ApiResponse<ResponseBody>
+    ): ApiResponse<ResponseBody>
 
     @GET("wiki/Special:EntityData/{entityId}.json")
     suspend fun getWikiDataEntityLabel(
-        @Path("entityId") entityId: String):ApiResponse<ResponseBody>
-
-
-//    https://www.wikidata.org/wiki/Special:EntityData/${entityId}.json
+        @Path("entityId") entityId: String
+    ): ApiResponse<ResponseBody>
 
 }

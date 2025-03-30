@@ -1,6 +1,7 @@
 package com.example.worldmapexplorer.data.repository
 
 import com.example.worldmapexplorer.utils.Coordinates
+import org.osmdroid.util.GeoPoint
 
 sealed class GeoJsonGeometry {
     abstract val type: String
@@ -13,19 +14,19 @@ sealed class GeoJsonGeometry {
         override val type = "MultiPoint"
     }
 
-    data class LineString(val coordinates: List<Coordinates>) : GeoJsonGeometry() {
+    data class LineString(val coordinates: List<Coordinates>,val center: GeoPoint) : GeoJsonGeometry() {
         override val type = "LineString"
     }
 
-    data class MultiLineString(val coordinates: List<List<Coordinates>>) : GeoJsonGeometry() {
+    data class MultiLineString(val coordinates: List<List<Coordinates>>,val center: GeoPoint) : GeoJsonGeometry() {
         override val type = "MultiLineString"
     }
 
-    data class Polygon(val coordinates: List<List<Coordinates>>) : GeoJsonGeometry() {
+    data class Polygon(val coordinates: List<List<Coordinates>>,val center: GeoPoint) : GeoJsonGeometry() {
         override val type = "Polygon"
     }
 
-    data class MultiPolygon(val coordinates: List<List<List<Coordinates>>>) : GeoJsonGeometry() {
+    data class MultiPolygon(val coordinates: List<List<List<Coordinates>>>,val center: GeoPoint) : GeoJsonGeometry() {
         override val type = "MultiPolygon"
     }
 

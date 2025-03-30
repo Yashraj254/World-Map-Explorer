@@ -18,7 +18,7 @@ val countryTemplate = listOf(
             TemplateItem(
                 "coordinates",
                 "Coordinates"
-            ), // Assumes `roundedLat` and `roundedLon` are pre-calculated
+            ),
             TemplateItem("area", "Area")
         )
     ),
@@ -65,7 +65,7 @@ val districtTemplate = listOf(
             TemplateItem(
                 "coordinates",
                 "Coordinates"
-            ), // Assumes `roundedLat` and `roundedLon` are pre-calculated
+            ),
             TemplateItem("area", "Area")
         )
     ),
@@ -89,7 +89,7 @@ val stateTemplate = listOf(
             TemplateItem(
                 "coordinates",
                 "Coordinates"
-            ), // Assumes `roundedLat` and `roundedLon` are pre-calculated
+            ),
             TemplateItem("area", "Area")
         )
     ),
@@ -107,9 +107,20 @@ val otherAreaTemplate = listOf(
     TemplateSection(
         type = "list",
         items = listOf(
-            TemplateItem("type", "Type"), // Assumes `roundedLat` and `roundedLon` are pre-calculated
+            TemplateItem("type", "Type"),
             TemplateItem("area", "Area"),
             TemplateItem("address", "Address"),
         )
     )
 )
+
+val pointTemplate = listOf(
+    TemplateSection(
+        type = "list",
+        items = listOf(
+            TemplateItem("type", "Type"),
+            TemplateItem("address", "Address"),
+        )
+    )
+)
+
