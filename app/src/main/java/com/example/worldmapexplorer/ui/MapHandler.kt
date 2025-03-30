@@ -201,7 +201,7 @@ class MapHandler(
         }
         mapView.controller.apply {
             setCenter(center)
-            setZoom(18.0)
+            setZoom(5.0)
         }
         mapView.invalidate()
     }

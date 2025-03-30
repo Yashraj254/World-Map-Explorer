@@ -56,10 +56,10 @@ class PlacesRepository @Inject constructor(
         osmType: String,
         osmId: Long
     ): ApiResponse<GeoJsonGeometry> = withContext(Dispatchers.IO) {
-        Timber.d("Fetching geometry for query: $query")
+//        Timber.d("Fetching geometry for query: $query")
         nominatimClient.getGeometry(query).suspendMapSuccess {
             val response = string()
-            Timber.d("Received response: $response")
+//            Timber.d("Received response: $response")
             json = JSONObject(response)
 
             val element = json.getJSONArray("elements").getJSONObject(0)
@@ -92,7 +92,7 @@ class PlacesRepository @Inject constructor(
                 }
             }
             geoJson = convertToGeoJSON(response,locationCoordinates)
-            Timber.d("Converted response to GeoJSON: $geoJson")
+//            Timber.d("Converted response to GeoJSON: $geoJson")
             geoJson
         }
     }
@@ -112,7 +112,7 @@ class PlacesRepository @Inject constructor(
 
         return nominatimClient.getPlaceDetailsForWiki(id, type).suspendMapSuccess {
             val response = JSONObject(string())
-            Timber.d("Received place details: $response")
+//            Timber.d("Received place details: $response")
             val wikiId = response.optJSONObject("extratags")?.optString("wikidata") ?: ""
             val adminLevel = response.opt("admin_level")?.toString()?.toIntOrNull() ?: -1
 
@@ -140,7 +140,7 @@ class PlacesRepository @Inject constructor(
 
         wikidataClient.getWikidataEntities(ids = entityId).suspendOnSuccess {
             val response = JSONObject(data.string())
-            Timber.d("Wikidata response: $response")
+//            Timber.d("Wikidata response: $response")
 
             val claims =
                 response.optJSONObject("entities")?.optJSONObject(entityId)?.optJSONObject("claims")
@@ -187,7 +187,7 @@ class PlacesRepository @Inject constructor(
 
         wikidataClient.getWikidataEntities(ids = entityId).suspendOnSuccess {
             val response = JSONObject(data.string())
-            Timber.d("Received response for state: $response")
+//            Timber.d("Received response for state: $response")
 
             val claims =
                 response.optJSONObject("entities")?.optJSONObject(entityId)?.optJSONObject("claims")
